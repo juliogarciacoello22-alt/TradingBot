@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections import Counter
 from datetime import date, time
 
@@ -25,6 +24,7 @@ from .models import (
 )
 from .session_engine import cme_session_date, in_signal_window
 from .setup_state_machine import advance_setup, start_setup
+from .price_math import round_to_tick
 
 
 class StrategyCoreV23:
@@ -59,7 +59,7 @@ class StrategyCoreV23:
         self.vwap_direction = LevelDirection.NEUTRAL
 
     def tick(self, value: float) -> float:
-        return math.floor(value / self.config.tick_size + 0.5) * self.config.tick_size
+        return round_to_tick(value, self.config.tick_size)
 
     def _point_level(self, kind: str, price: float, timestamp, *, direction=None):
         half_width = self.config.point_level_half_width_ticks * self.config.tick_size

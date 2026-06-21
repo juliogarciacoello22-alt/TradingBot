@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from core.strategy_v23.config import StrategyConfigV23
 from core.strategy_v23.models import Bar, Rejection, SignalDecision
@@ -25,11 +27,35 @@ class BacktestResult:
     equity_curve: tuple[dict, ...]
 
 
+@dataclass(frozen=True)
+class RunMetadata:
+    commit_hash: str
+    execution_timestamp: datetime
+
+    def __post_init__(self):
+        if not re.fullmatch(r"[0-9a-fA-F]{7,64}", self.commit_hash):
+            raise ValueError("commit_hash must be a 7-64 character hexadecimal Git hash")
+        if self.execution_timestamp.tzinfo is None:
+            raise ValueError("execution_timestamp must be timezone-aware")
+
+
+def sort_rejections(rejections: list[Rejection]) -> list[Rejection]:
+    return sorted(
+        rejections,
+        key=lambda item: (
+            item.timestamp,
+            item.reason,
+            item.level_kind or "",
+            item.side.value if item.side else "",
+        ),
+    )
+
+
 class BacktestRunnerV23:
     def __init__(self, config: StrategyConfigV23 | None = None):
         self.config = config or StrategyConfigV23()
 
-    def run(self, dataset: LoadedDataset) -> BacktestResult:
+    def run(self, dataset: LoadedDataset, *, metadata: RunMetadata) -> BacktestResult:
         core = StrategyCoreV23(self.config)
         clock = HistoricalClock()
         fills = FillModel(self.config)
@@ -78,7 +104,7 @@ class BacktestRunnerV23:
                 pending_signal.side,
             ))
 
-        rejections = [*core.rejections, *execution_rejections]
+        rejections = sort_rejections([*core.rejections, *execution_rejections])
 
         summary, daily, curve = calculate_metrics(
             trades,
@@ -92,12 +118,14 @@ class BacktestRunnerV23:
             "strategy_version": self.config.version,
             "dataset_path": str(dataset.path),
             "dataset_sha256": dataset.sha256,
+            "commit_hash": metadata.commit_hash,
+            "execution_timestamp": metadata.execution_timestamp.isoformat(),
             "bar_count": len(dataset.bars),
             "first_timestamp": dataset.bars[0].timestamp.isoformat(),
             "last_timestamp": dataset.bars[-1].timestamp.isoformat(),
             "execution_model": {
-                "entry": "next_bar_open_plus_adverse_slippage",
-                "stop_gap": "adverse_bar_open_plus_exit_slippage",
+                "entry": "next_bar_open_adverse_slippage_capped_to_ohlc",
+                "stop_gap": "adverse_bar_open_exit_slippage_capped_to_ohlc",
                 "intrabar_conflict": "stop_first",
             },
             "config": self.config.as_dict(),

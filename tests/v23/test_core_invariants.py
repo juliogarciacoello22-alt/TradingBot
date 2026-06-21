@@ -4,11 +4,20 @@ from datetime import datetime
 from backtesting.v23.metrics import calculate_metrics
 from core.strategy_v23.models import Direction, Rejection, Setup
 from core.strategy_v23.strategy_core import StrategyCoreV23
+from core.strategy_v23.level_registry import LevelRegistry
+from core.strategy_v23.price_math import round_to_tick
 
 from .helpers import CHICAGO, bar
 
 
 class CoreInvariantTests(unittest.TestCase):
+    def test_tick_rounding_is_identical_across_components(self):
+        core = StrategyCoreV23()
+        registry = LevelRegistry(0.25)
+        self.assertEqual(round_to_tick(100.125, 0.25), 100.25)
+        self.assertEqual(core.tick(100.125), 100.25)
+        self.assertEqual(registry.tick(100.125), 100.25)
+
     def test_setup_expires_on_exact_tenth_bar(self):
         core = StrategyCoreV23()
         level = core.levels.add("prior_low", 99.75, 100.25, bar(0).timestamp)

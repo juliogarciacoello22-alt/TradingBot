@@ -4,6 +4,7 @@ from datetime import datetime
 
 from .direction_engine import classify_level
 from .models import Bar, Level, LevelDirection, LevelState
+from .price_math import round_to_tick
 
 
 class LevelRegistry:
@@ -13,7 +14,7 @@ class LevelRegistry:
         self.dynamic: dict[str, Level] = {}
 
     def tick(self, value: float) -> float:
-        return round(value / self.tick_size) * self.tick_size
+        return round_to_tick(value, self.tick_size)
 
     def add(
         self,

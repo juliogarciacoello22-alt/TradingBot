@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, replace
 from datetime import datetime
 
 from core.strategy_v23.config import StrategyConfigV23
 from core.strategy_v23.models import Bar, Direction, SignalDecision
+from core.strategy_v23.price_math import clamp_to_range, round_to_tick
 
 
 @dataclass
@@ -48,14 +48,23 @@ class FillModel:
         self.config = config
 
     def tick(self, value: float) -> float:
-        return math.floor(value / self.config.tick_size + 0.5) * self.config.tick_size
+        return round_to_tick(value, self.config.tick_size)
+
+    def reachable_price(self, desired: float, bar: Bar) -> float:
+        return clamp_to_range(self.tick(desired), bar.low, bar.high)
 
     def open_next_bar(self, signal: SignalDecision, bar: Bar, bar_index: int) -> EntryAttempt:
         if bar.timestamp <= signal.timestamp:
             return EntryAttempt(None, "entry_not_after_signal")
         slip_points = self.config.entry_slippage_ticks * self.config.tick_size
-        entry = self.tick(
-            bar.open + slip_points if signal.side == Direction.BUY else bar.open - slip_points
+        desired_entry = (
+            bar.open + slip_points
+            if signal.side == Direction.BUY
+            else bar.open - slip_points
+        )
+        entry = self.reachable_price(
+            desired_entry,
+            bar,
         )
         risk = entry - signal.stop if signal.side == Direction.BUY else signal.stop - entry
         if risk <= 0:
@@ -98,15 +107,23 @@ class FillModel:
         else:
             theoretical_exit = signal.tp1
         slip_points = self.config.exit_slippage_ticks * self.config.tick_size
-        exit_price = theoretical_exit
-        if slip_points:
-            exit_price = theoretical_exit - slip_points if signal.side == Direction.BUY else theoretical_exit + slip_points
+        desired_exit = (
+            theoretical_exit - slip_points
+            if signal.side == Direction.BUY
+            else theoretical_exit + slip_points
+        )
+        exit_price = self.reachable_price(desired_exit, bar)
         price_r = (
             (exit_price - signal.entry) / signal.risk_points
             if signal.side == Direction.BUY
             else (signal.entry - exit_price) / signal.risk_points
         )
-        exit_slippage_r = slip_points / signal.risk_points
+        applied_exit_slippage = (
+            theoretical_exit - exit_price
+            if signal.side == Direction.BUY
+            else exit_price - theoretical_exit
+        )
+        exit_slippage_r = applied_exit_slippage / signal.risk_points
         commission_r = (
             self.config.commission_round_trip / (signal.risk_points * self.config.point_value)
             if signal.risk_points > 0 else 0.0

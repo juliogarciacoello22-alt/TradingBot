@@ -53,6 +53,21 @@ class FillModelTests(unittest.TestCase):
         self.assertEqual(attempt.position.entry_timestamp, bar(1).timestamp)
         self.assertEqual(attempt.position.signal.risk_points, 1.75)
 
+    def test_entry_slippage_is_capped_at_reachable_bar_extreme(self):
+        model = FillModel(StrategyConfigV23(entry_slippage_ticks=1))
+        buy = model.open_next_bar(
+            signal(),
+            bar(1, open_=100.0, high=100.0, low=99.5, close=100.0),
+            1,
+        )
+        sell = model.open_next_bar(
+            signal(Direction.SELL),
+            bar(1, open_=100.0, high=100.5, low=100.0, close=100.0),
+            1,
+        )
+        self.assertEqual(buy.position.signal.entry, 100.0)
+        self.assertEqual(sell.position.signal.entry, 100.0)
+
     def test_gap_crossing_stop_cancels_pending_entry(self):
         model = FillModel(StrategyConfigV23())
         attempt = model.open_next_bar(
@@ -81,6 +96,21 @@ class FillModelTests(unittest.TestCase):
         self.assertEqual(result.outcome, "STOP")
         self.assertEqual(result.exit_price, 89.75)
         self.assertAlmostEqual(result.net_r, -10.25)
+
+    def test_stop_slippage_never_leaves_observed_range(self):
+        model = FillModel(StrategyConfigV23(entry_slippage_ticks=0, exit_slippage_ticks=1))
+        buy = model.resolve(
+            Position(signal(), 0, bar(0).timestamp),
+            bar(1, open_=90.0, high=91.0, low=90.0, close=90.0),
+            1,
+        )
+        sell = model.resolve(
+            Position(signal(Direction.SELL), 0, bar(0).timestamp),
+            bar(1, open_=110.0, high=110.0, low=109.0, close=110.0),
+            1,
+        )
+        self.assertEqual(buy.exit_price, 90.0)
+        self.assertEqual(sell.exit_price, 110.0)
 
     def test_sell_stop_gap_uses_adverse_open(self):
         model = FillModel(StrategyConfigV23(entry_slippage_ticks=0, exit_slippage_ticks=1))

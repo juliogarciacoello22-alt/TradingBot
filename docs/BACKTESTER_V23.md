@@ -21,6 +21,10 @@ Estado: implementado en una rama aislada para revision. No esta conectado a
 - TP1 unico a 1.5R, stop-first cuando stop y TP coinciden en la misma vela.
 - Un gap que atraviesa el stop sale desde la apertura adversa mas slippage, no
   desde el stop teorico.
+- Todo slippage queda limitado al rango OHLC observado de la vela; si el precio
+  deseado cae fuera, se usa el extremo adverso alcanzable.
+- El manifiesto registra el commit y timestamp UTC de ejecucion. Estos metadatos
+  se inyectan desde la CLI para mantener puro el motor historico.
 - Comision y slippage configurables; resultados diarios, rechazos y curva en R.
 - Hash SHA-256 del dataset y de la configuracion en cada manifiesto.
 
