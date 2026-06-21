@@ -94,6 +94,31 @@ class LoaderAndDeterminismTests(unittest.TestCase):
         earlier = Rejection(bar(1).timestamp, "execution")
         self.assertEqual(sort_rejections([later, earlier]), [earlier, later])
 
+    def test_rejection_identity_preserves_distinct_setups_and_removes_true_duplicates(self):
+        from core.strategy_v23.models import Rejection
+
+        first = Rejection(
+            bar(1).timestamp,
+            "opposite_acceptance",
+            "sweep_high",
+            Direction.SELL,
+            level_id="level-a",
+            setup_id="setup-a",
+        )
+        second = Rejection(
+            bar(1).timestamp,
+            "opposite_acceptance",
+            "sweep_high",
+            Direction.SELL,
+            level_id="level-b",
+            setup_id="setup-b",
+        )
+        normalized = sort_rejections([first, first, second])
+
+        self.assertEqual(len(normalized), 2)
+        self.assertNotEqual(first.event_id, second.event_id)
+        self.assertEqual({item.setup_id for item in normalized}, {"setup-a", "setup-b"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -40,8 +40,14 @@ class RunMetadata:
 
 
 def sort_rejections(rejections: list[Rejection]) -> list[Rejection]:
+    unique: dict[str, Rejection] = {}
+    for rejection in rejections:
+        existing = unique.get(rejection.event_id)
+        if existing is not None and existing != rejection:
+            raise AssertionError(f"Rejection event_id collision: {rejection.event_id}")
+        unique[rejection.event_id] = rejection
     return sorted(
-        rejections,
+        unique.values(),
         key=lambda item: (
             item.timestamp,
             item.reason,
@@ -74,10 +80,12 @@ class BacktestRunnerV23:
                 attempt = fills.open_next_bar(pending_signal, bar, index)
                 if attempt.position is None:
                     execution_rejections.append(Rejection(
-                        bar.timestamp,
-                        attempt.rejection_reason or "entry_rejected",
-                        pending_signal.level_kind,
-                        pending_signal.side,
+                        timestamp=bar.timestamp,
+                        reason=attempt.rejection_reason or "entry_rejected",
+                        level_kind=pending_signal.level_kind,
+                        side=pending_signal.side,
+                        level_id=pending_signal.level_id,
+                        setup_id=pending_signal.metadata.get("setup_id"),
                     ))
                 else:
                     position = attempt.position
@@ -98,10 +106,12 @@ class BacktestRunnerV23:
             trades.append(fills.mark_open(position))
         if pending_signal is not None:
             execution_rejections.append(Rejection(
-                dataset.bars[-1].timestamp,
-                "entry_unfilled_end_of_data",
-                pending_signal.level_kind,
-                pending_signal.side,
+                timestamp=dataset.bars[-1].timestamp,
+                reason="entry_unfilled_end_of_data",
+                level_kind=pending_signal.level_kind,
+                side=pending_signal.side,
+                level_id=pending_signal.level_id,
+                setup_id=pending_signal.metadata.get("setup_id"),
             ))
 
         rejections = sort_rejections([*core.rejections, *execution_rejections])

@@ -25,6 +25,9 @@ Estado: implementado en una rama aislada para revision. No esta conectado a
   deseado cae fuera, se usa el extremo adverso alcanzable.
 - El manifiesto registra el commit y timestamp UTC de ejecucion. Estos metadatos
   se inyectan desde la CLI para mantener puro el motor historico.
+- Cada rechazo conserva `level_id`, `setup_id` y un `event_id` determinista. Los
+  eventos simultaneos de setups distintos permanecen separados y solo se
+  deduplican repeticiones exactas del mismo evento.
 - Comision y slippage configurables; resultados diarios, rechazos y curva en R.
 - Hash SHA-256 del dataset y de la configuracion en cada manifiesto.
 

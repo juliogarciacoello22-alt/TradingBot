@@ -166,10 +166,12 @@ class StrategyCoreV23:
 
     def _reject(self, bar: Bar, reason: str, setup: Setup | None = None) -> None:
         self.rejections.append(Rejection(
-            bar.timestamp,
-            reason,
-            setup.level_kind if setup else None,
-            setup.side if setup else None,
+            timestamp=bar.timestamp,
+            reason=reason,
+            level_kind=setup.level_kind if setup else None,
+            side=setup.side if setup else None,
+            level_id=setup.level_id if setup else None,
+            setup_id=setup.identifier if setup else None,
         ))
 
     def _advance_setups(self, bar: Bar, bar_index: int) -> list[Setup]:
@@ -293,6 +295,7 @@ class StrategyCoreV23:
                 "strategy_version": self.config.version,
                 "entry_model": "next_bar_open_pending",
                 "reference_price": "signal_bar_close",
+                "setup_id": setup.identifier,
             },
         )
 

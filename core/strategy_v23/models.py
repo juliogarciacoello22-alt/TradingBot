@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -96,6 +97,10 @@ class Setup:
     closes_above: int = 0
     closes_below: int = 0
 
+    @property
+    def identifier(self) -> str:
+        return f"{self.level_id}|{self.side.value}|bar:{self.event_bar_index}"
+
 
 @dataclass(frozen=True)
 class SignalDecision:
@@ -122,4 +127,20 @@ class Rejection:
     reason: str
     level_kind: str | None = None
     side: Direction | None = None
+    level_id: str | None = None
+    setup_id: str | None = None
+    event_id: str = ""
 
+    def __post_init__(self):
+        if self.event_id:
+            return
+        identity = self.setup_id or self.level_id or "global"
+        side = self.side.value if self.side else ""
+        payload = "|".join((
+            self.timestamp.isoformat(),
+            self.reason,
+            self.level_kind or "",
+            side,
+            identity,
+        ))
+        object.__setattr__(self, "event_id", hashlib.sha256(payload.encode()).hexdigest().upper())
