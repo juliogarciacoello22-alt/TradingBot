@@ -13,7 +13,14 @@ Estado: implementado en una rama aislada para revision. No esta conectado a
 - Maquina de estados con barrida/rechazo, recuperacion, dos cierres de
   confirmacion y caducidad exacta de 10 velas.
 - Una posicion abierta, maximo tres senales por dia y cooldown de 20 minutos.
+- La senal queda pendiente y la entrada se llena en la apertura de la vela
+  siguiente con slippage adverso; entry, riesgo y TP1 se recalculan desde el
+  fill real.
+- Si la apertura cruza el stop o vuelve invalido el riesgo, la entrada se
+  cancela y se registra como rechazo de ejecucion.
 - TP1 unico a 1.5R, stop-first cuando stop y TP coinciden en la misma vela.
+- Un gap que atraviesa el stop sale desde la apertura adversa mas slippage, no
+  desde el stop teorico.
 - Comision y slippage configurables; resultados diarios, rechazos y curva en R.
 - Hash SHA-256 del dataset y de la configuracion en cada manifiesto.
 

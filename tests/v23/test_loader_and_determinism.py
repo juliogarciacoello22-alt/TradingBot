@@ -2,10 +2,12 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from backtesting.v23.data_loader import LoadedDataset, load_last_file
 from backtesting.v23.runner import BacktestRunnerV23
 from core.strategy_v23.config import StrategyConfigV23
+from core.strategy_v23.models import Direction, SignalDecision
 
 from .helpers import bar
 
@@ -37,7 +39,50 @@ class LoaderAndDeterminismTests(unittest.TestCase):
         self.assertEqual(first.rejections, second.rejections)
         self.assertEqual(first.manifest["config_sha256"], second.manifest["config_sha256"])
 
+    def test_runner_fills_signal_on_following_bar(self):
+        bars = (
+            bar(0, open_=100.0, high=101.0, low=99.5, close=100.0),
+            bar(1, open_=100.0, high=101.0, low=99.5, close=100.5),
+        )
+        decision = SignalDecision(
+            timestamp=bars[0].timestamp,
+            side=Direction.BUY,
+            level_id="level",
+            level_kind="prior_low",
+            event_type="sweep",
+            entry=100.0,
+            stop=99.0,
+            risk_points=1.0,
+            tp1=101.5,
+            atr14=2.0,
+            volume=100.0,
+            volume20=90.0,
+            confirmations=("volume", "atr_rising"),
+            sequence=1,
+        )
+
+        class FakeCore:
+            def __init__(self, _config):
+                self.rejections = []
+                self.calls = 0
+
+            def process_bar(self, _bar, *, position_open=False):
+                self.calls += 1
+                return decision if self.calls == 1 else None
+
+        dataset = LoadedDataset(Path("synthetic"), "ABC", bars)
+        with patch("backtesting.v23.runner.StrategyCoreV23", FakeCore):
+            result = BacktestRunnerV23(StrategyConfigV23()).run(dataset)
+
+        self.assertEqual(len(result.trades), 1)
+        self.assertEqual(result.trades[0].signal_timestamp, bars[0].timestamp)
+        self.assertEqual(result.trades[0].entry_timestamp, bars[1].timestamp)
+        self.assertGreater(result.trades[0].entry_timestamp, result.trades[0].signal_timestamp)
+        self.assertEqual(result.trades[0].entry, 100.25)
+        self.assertEqual(result.trades[0].stop, 99.0)
+        self.assertEqual(result.trades[0].risk_points, 1.25)
+        self.assertEqual(result.trades[0].tp1, 102.25)
+
 
 if __name__ == "__main__":
     unittest.main()
-

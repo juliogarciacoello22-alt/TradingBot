@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from core.strategy_v23.config import StrategyConfigV23
@@ -11,11 +12,19 @@ from core.strategy_v23.models import Bar, Direction, SignalDecision
 class Position:
     signal: SignalDecision
     opened_bar_index: int
+    entry_timestamp: datetime
+
+
+@dataclass(frozen=True)
+class EntryAttempt:
+    position: Position | None
+    rejection_reason: str | None = None
 
 
 @dataclass(frozen=True)
 class TradeResult:
     sequence: int
+    signal_timestamp: datetime
     entry_timestamp: datetime
     exit_timestamp: datetime | None
     side: Direction
@@ -38,12 +47,40 @@ class FillModel:
     def __init__(self, config: StrategyConfigV23):
         self.config = config
 
-    def open(self, signal: SignalDecision, bar_index: int) -> Position:
-        return Position(signal, bar_index)
+    def tick(self, value: float) -> float:
+        return math.floor(value / self.config.tick_size + 0.5) * self.config.tick_size
+
+    def open_next_bar(self, signal: SignalDecision, bar: Bar, bar_index: int) -> EntryAttempt:
+        if bar.timestamp <= signal.timestamp:
+            return EntryAttempt(None, "entry_not_after_signal")
+        slip_points = self.config.entry_slippage_ticks * self.config.tick_size
+        entry = self.tick(
+            bar.open + slip_points if signal.side == Direction.BUY else bar.open - slip_points
+        )
+        risk = entry - signal.stop if signal.side == Direction.BUY else signal.stop - entry
+        if risk <= 0:
+            return EntryAttempt(None, "entry_gap_crossed_stop")
+        if risk < self.config.min_stop_points or risk > self.config.max_stop_atr_multiple * signal.atr14:
+            return EntryAttempt(None, "entry_gap_invalid_risk")
+        tp1 = self.tick(
+            entry + self.config.target_r * risk
+            if signal.side == Direction.BUY
+            else entry - self.config.target_r * risk
+        )
+        filled_signal = replace(
+            signal,
+            entry=entry,
+            risk_points=risk,
+            tp1=tp1,
+            metadata={
+                **signal.metadata,
+                "entry_model": "next_bar_open",
+                "signal_timestamp": signal.timestamp.isoformat(),
+            },
+        )
+        return EntryAttempt(Position(filled_signal, bar_index, bar.timestamp))
 
     def resolve(self, position: Position, bar: Bar, bar_index: int) -> TradeResult | None:
-        if bar_index <= position.opened_bar_index:
-            return None
         signal = position.signal
         if signal.side == Direction.BUY:
             stop_hit = bar.low <= signal.stop
@@ -54,7 +91,12 @@ class FillModel:
         if not stop_hit and not target_hit:
             return None
         outcome = "STOP" if stop_hit else "TP1"  # stop-first conflict rule
-        theoretical_exit = signal.stop if stop_hit else signal.tp1
+        if stop_hit and signal.side == Direction.BUY:
+            theoretical_exit = min(signal.stop, bar.open)
+        elif stop_hit:
+            theoretical_exit = max(signal.stop, bar.open)
+        else:
+            theoretical_exit = signal.tp1
         slip_points = self.config.exit_slippage_ticks * self.config.tick_size
         exit_price = theoretical_exit
         if slip_points:
@@ -71,7 +113,8 @@ class FillModel:
         )
         return TradeResult(
             sequence=signal.sequence,
-            entry_timestamp=signal.timestamp,
+            signal_timestamp=signal.timestamp,
+            entry_timestamp=position.entry_timestamp,
             exit_timestamp=bar.timestamp,
             side=signal.side,
             level_kind=signal.level_kind,
@@ -93,7 +136,8 @@ class FillModel:
         signal = position.signal
         return TradeResult(
             sequence=signal.sequence,
-            entry_timestamp=signal.timestamp,
+            signal_timestamp=signal.timestamp,
+            entry_timestamp=position.entry_timestamp,
             exit_timestamp=None,
             side=signal.side,
             level_kind=signal.level_kind,
@@ -110,4 +154,3 @@ class FillModel:
             net_r=0.0,
             confirmations=signal.confirmations,
         )
-

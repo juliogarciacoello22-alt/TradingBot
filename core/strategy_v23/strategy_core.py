@@ -254,8 +254,9 @@ class StrategyCoreV23:
             if len(confirms) < self.config.min_confirmations:
                 self._reject(bar, "insufficient_confirmations", setup)
                 continue
-            slippage = self.config.entry_slippage_ticks * self.config.tick_size
-            entry = self.tick(bar.close + slippage if setup.side == Direction.BUY else bar.close - slippage)
+            # Reference price only. The backtester fills the market order at the
+            # next bar open and applies entry slippage there.
+            entry = self.tick(bar.close)
             stop = self.tick(setup.event_extreme - self.config.tick_size if setup.side == Direction.BUY else setup.event_extreme + self.config.tick_size)
             risk = entry - stop if setup.side == Direction.BUY else stop - entry
             if snapshot.atr14 is None or risk < self.config.min_stop_points or risk > self.config.max_stop_atr_multiple * snapshot.atr14:
@@ -288,7 +289,11 @@ class StrategyCoreV23:
             volume20=snapshot.volume20,
             confirmations=confirms,
             sequence=self.sequence,
-            metadata={"strategy_version": self.config.version},
+            metadata={
+                "strategy_version": self.config.version,
+                "entry_model": "next_bar_open_pending",
+                "reference_price": "signal_bar_close",
+            },
         )
 
     def _start_new_setups(self, bar: Bar, bar_index: int, suppressed: set[str]) -> None:
