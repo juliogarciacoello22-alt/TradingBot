@@ -26,6 +26,7 @@ dashboard.html
 data/
 prepared_nq_data/
 backtest_v22_results/
+backtest_v23_results/
 *.csv
 *.csv.gz
 *.Last.txt
