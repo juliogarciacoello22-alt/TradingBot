@@ -1,0 +1,37 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python / IDE
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.vs/
+.idea/
+.agents/
+
+# Runtime output
+*.log
+*.jsonl
+logs/
+logs_institucional/
+dashboard.html
+
+# Market data and generated research artifacts
+data/
+prepared_nq_data/
+backtest_v22_results/
+*.csv
+*.csv.gz
+*.Last.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+core/.txt
