@@ -131,6 +131,7 @@ class BacktestRunnerV23:
             "strategy_version": self.config.version,
             "dataset_path": str(dataset.path),
             "dataset_sha256": dataset.sha256,
+            "closure_calendar_sha256": dataset.closure_calendar_sha256,
             "commit_hash": metadata.commit_hash,
             "execution_timestamp": metadata.execution_timestamp.isoformat(),
             "bar_count": len(dataset.bars),

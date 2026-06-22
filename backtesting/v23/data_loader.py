@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, time
@@ -23,6 +24,7 @@ class LoadedDataset:
     sha256: str
     bars: tuple[Bar, ...]
     gaps: tuple["GapAudit", ...] = ()
+    closure_calendar_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,21 +35,72 @@ class GapAudit:
     classification: str
 
 
-def classify_gap(previous: datetime, current: datetime, max_short_gap_minutes: int) -> GapAudit | None:
+@dataclass(frozen=True)
+class ExpectedClosure:
+    last_bar_timestamp: datetime
+    next_bar_timestamp: datetime
+    label: str
+
+
+@dataclass(frozen=True)
+class ClosureCalendar:
+    path: Path
+    sha256: str
+    closures: tuple[ExpectedClosure, ...]
+
+
+def load_expected_closures(path: str | Path, *, timezone_name: str) -> ClosureCalendar:
+    timezone = ZoneInfo(timezone_name)
+    source = Path(path).resolve()
+    raw = source.read_bytes()
+    records = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(records, list):
+        raise ValueError("Closure calendar must be a JSON list")
+    closures = []
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict) or not {"last_bar", "next_bar", "label"} <= record.keys():
+            raise ValueError(f"Invalid closure calendar record {index}")
+        last_bar = datetime.fromisoformat(str(record["last_bar"]))
+        next_bar = datetime.fromisoformat(str(record["next_bar"]))
+        last_bar = last_bar.replace(tzinfo=timezone) if last_bar.tzinfo is None else last_bar.astimezone(timezone)
+        next_bar = next_bar.replace(tzinfo=timezone) if next_bar.tzinfo is None else next_bar.astimezone(timezone)
+        if next_bar <= last_bar:
+            raise ValueError(f"Closure calendar record {index} is not increasing")
+        closures.append(ExpectedClosure(last_bar, next_bar, str(record["label"])))
+    return ClosureCalendar(source, hashlib.sha256(raw).hexdigest().upper(), tuple(closures))
+
+
+def classify_gap(
+    previous: datetime,
+    current: datetime,
+    max_short_gap_minutes: int,
+    expected_closures: tuple[ExpectedClosure, ...] = (),
+) -> GapAudit | None:
     delta_seconds = (current - previous).total_seconds()
     if delta_seconds <= 60:
         return None
     missing_minutes = int(delta_seconds // 60) - 1
-    # A new CME session begins at 17:00 CT. Requiring the first new bar to
-    # arrive near that boundary prevents a missing intraday block from being
-    # mislabeled as a maintenance, weekend, or holiday closure.
-    at_session_open = (
-        cme_session_date(previous) != cme_session_date(current)
-        and previous.time() >= time(11, 0)
-        and time(17, 0) <= current.time() <= time(17, 10)
+    at_cme_open = time(17, 0) <= current.time() <= time(17, 10)
+    daily_maintenance = (
+        previous.date() == current.date()
+        and cme_session_date(previous) != cme_session_date(current)
+        and time(15, 50) <= previous.time() <= time(16, 10)
+        and at_cme_open
     )
-    if at_session_open:
-        return GapAudit(previous, current, missing_minutes, "expected_session_closure")
+    if daily_maintenance:
+        return GapAudit(previous, current, missing_minutes, "daily_maintenance")
+    weekend = (
+        previous.weekday() == 4
+        and current.weekday() == 6
+        and (current.date() - previous.date()).days == 2
+        and time(15, 50) <= previous.time() <= time(16, 10)
+        and at_cme_open
+    )
+    if weekend:
+        return GapAudit(previous, current, missing_minutes, "weekend_closure")
+    for closure in expected_closures:
+        if previous == closure.last_bar_timestamp and current == closure.next_bar_timestamp:
+            return GapAudit(previous, current, missing_minutes, f"calendar:{closure.label}")
     if missing_minutes <= max_short_gap_minutes:
         return GapAudit(previous, current, missing_minutes, "short_provider_gap")
     return GapAudit(previous, current, missing_minutes, "unexpected_long_gap")
@@ -59,6 +112,7 @@ def load_last_file(
     timezone_name: str,
     tick_size: float,
     max_short_gap_minutes: int = 10,
+    closure_calendar: ClosureCalendar | None = None,
 ) -> LoadedDataset:
     source = Path(path).resolve()
     raw = source.read_bytes()
@@ -77,7 +131,12 @@ def load_last_file(
         if previous is not None and timestamp <= previous:
             raise ValueError(f"Timestamps are not strictly increasing at line {line_number}")
         if previous is not None:
-            gap = classify_gap(previous, timestamp, max_short_gap_minutes)
+            gap = classify_gap(
+                previous,
+                timestamp,
+                max_short_gap_minutes,
+                closure_calendar.closures if closure_calendar else (),
+            )
             if gap is not None:
                 if gap.classification == "unexpected_long_gap":
                     raise ValueError(
@@ -93,4 +152,10 @@ def load_last_file(
         previous = timestamp
     if not bars:
         raise ValueError("Dataset is empty")
-    return LoadedDataset(source, digest, tuple(bars), tuple(gaps))
+    return LoadedDataset(
+        source,
+        digest,
+        tuple(bars),
+        tuple(gaps),
+        closure_calendar.sha256 if closure_calendar else None,
+    )

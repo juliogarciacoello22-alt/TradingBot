@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from backtesting.v23.data_loader import LoadedDataset, load_last_file
+from backtesting.v23.data_loader import ExpectedClosure, LoadedDataset, load_expected_closures, load_last_file
 from backtesting.v23.runner import BacktestRunnerV23, RunMetadata, sort_rejections
 from core.strategy_v23.config import StrategyConfigV23
 from core.strategy_v23.models import Direction, SignalDecision
@@ -62,9 +62,76 @@ class LoaderAndDeterminismTests(unittest.TestCase):
 
             self.assertEqual(
                 [gap.classification for gap in dataset.gaps],
-                ["expected_session_closure", "short_provider_gap"],
+                ["daily_maintenance", "short_provider_gap"],
             )
             self.assertEqual([gap.missing_minutes for gap in dataset.gaps], [60, 5])
+
+    def test_loader_rejects_one_or_two_missing_sessions(self):
+        cases = (
+            ("20251104 155900", "20251105 170000", 1500),
+            ("20251104 155900", "20251106 170000", 2940),
+        )
+        for previous, current, missing in cases:
+            with self.subTest(current=current), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "missing-session.Last.txt"
+                path.write_text(
+                    f"{previous};100;101;99;100.5;10\n"
+                    f"{current};100.5;102;100;101.5;20\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, f"Unexpected {missing}-minute gap"):
+                    load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
+    def test_loader_accepts_exact_weekend_closure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weekend.Last.txt"
+            path.write_text(
+                "20251107 155900;100;101;99;100.5;10\n"
+                "20251109 170000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            dataset = load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+            self.assertEqual(dataset.gaps[0].classification, "weekend_closure")
+
+    def test_holiday_requires_exact_explicit_calendar_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "holiday.Last.txt"
+            calendar = Path(directory) / "closures.json"
+            data.write_text(
+                "20251126 121500;100;101;99;100.5;10\n"
+                "20251127 170000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Unexpected"):
+                load_last_file(data, timezone_name="America/Chicago", tick_size=.25)
+
+            calendar.write_text(
+                '[{"last_bar":"2025-11-26T12:15:00-06:00",'
+                '"next_bar":"2025-11-27T17:00:00-06:00",'
+                '"label":"thanksgiving"}]',
+                encoding="utf-8",
+            )
+            closure_calendar = load_expected_closures(calendar, timezone_name="America/Chicago")
+            dataset = load_last_file(
+                data,
+                timezone_name="America/Chicago",
+                tick_size=.25,
+                closure_calendar=closure_calendar,
+            )
+            self.assertEqual(dataset.gaps[0].classification, "calendar:thanksgiving")
+            self.assertEqual(dataset.closure_calendar_sha256, closure_calendar.sha256)
+            self.assertEqual(len(dataset.closure_calendar_sha256), 64)
+
+    def test_early_close_is_not_daily_maintenance_without_calendar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "early-close.Last.txt"
+            path.write_text(
+                "20251128 120000;100;101;99;100.5;10\n"
+                "20251128 170000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Unexpected 299-minute gap"):
+                load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
 
     def test_runner_is_deterministic(self):
         bars = tuple(

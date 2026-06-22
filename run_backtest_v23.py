@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backtesting.v23.data_loader import load_last_file
+from backtesting.v23.data_loader import load_expected_closures, load_last_file
 from backtesting.v23.recorder import write_results
 from backtesting.v23.runner import BacktestRunnerV23, RunMetadata
 from core.strategy_v23.config import StrategyConfigV23
@@ -40,6 +40,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commission-round-trip", type=float, required=True)
     parser.add_argument("--exit-slippage-ticks", type=int, default=0)
+    parser.add_argument(
+        "--closure-calendar",
+        type=Path,
+        help="Optional explicit JSON calendar for holiday/exception closures",
+    )
     args = parser.parse_args()
 
     config = replace(
@@ -47,10 +52,16 @@ def main() -> None:
         commission_round_trip=args.commission_round_trip,
         exit_slippage_ticks=args.exit_slippage_ticks,
     )
+    closure_calendar = (
+        load_expected_closures(args.closure_calendar, timezone_name=config.timezone)
+        if args.closure_calendar
+        else None
+    )
     dataset = load_last_file(
         args.dataset,
         timezone_name=config.timezone,
         tick_size=config.tick_size,
+        closure_calendar=closure_calendar,
     )
     commit_hash = resolve_git_head(Path(__file__).resolve().parent)
     metadata = RunMetadata(commit_hash, datetime.now(timezone.utc))
