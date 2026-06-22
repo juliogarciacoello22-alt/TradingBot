@@ -80,12 +80,13 @@ def classify_gap(
     if delta_seconds <= 60:
         return None
     missing_minutes = int(delta_seconds // 60) - 1
-    at_cme_open = time(17, 0) <= current.time() <= time(17, 10)
+    exact_close = previous.time() == time(15, 59)
+    exact_open = current.time() == time(17, 0)
     daily_maintenance = (
         previous.date() == current.date()
         and cme_session_date(previous) != cme_session_date(current)
-        and time(15, 50) <= previous.time() <= time(16, 10)
-        and at_cme_open
+        and exact_close
+        and exact_open
     )
     if daily_maintenance:
         return GapAudit(previous, current, missing_minutes, "daily_maintenance")
@@ -93,8 +94,8 @@ def classify_gap(
         previous.weekday() == 4
         and current.weekday() == 6
         and (current.date() - previous.date()).days == 2
-        and time(15, 50) <= previous.time() <= time(16, 10)
-        and at_cme_open
+        and exact_close
+        and exact_open
     )
     if weekend:
         return GapAudit(previous, current, missing_minutes, "weekend_closure")

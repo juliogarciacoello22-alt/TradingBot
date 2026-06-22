@@ -133,6 +133,34 @@ class LoaderAndDeterminismTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected 299-minute gap"):
                 load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
 
+    def test_session_closure_requires_exact_1559_to_1700_boundaries(self):
+        cases = (
+            ("20251104 155000", "20251104 171000", 79),
+            ("20251104 161000", "20251104 170000", 49),
+            ("20251104 155900", "20251104 171000", 70),
+        )
+        for previous, current, missing in cases:
+            with self.subTest(previous=previous, current=current), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "boundary-bypass.Last.txt"
+                path.write_text(
+                    f"{previous};100;101;99;100.5;10\n"
+                    f"{current};100.5;102;100;101.5;20\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, f"Unexpected {missing}-minute gap"):
+                    load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
+    def test_weekend_requires_exact_1559_to_1700_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weekend-bypass.Last.txt"
+            path.write_text(
+                "20251107 155000;100;101;99;100.5;10\n"
+                "20251109 171000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Unexpected 2959-minute gap"):
+                load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
     def test_runner_is_deterministic(self):
         bars = tuple(
             bar(index, open_=100 + index * .25, high=101 + index * .25,

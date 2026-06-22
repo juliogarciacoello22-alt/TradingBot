@@ -29,8 +29,9 @@ Estado: implementado en una rama aislada para revision. No esta conectado a
   eventos simultaneos de setups distintos permanecen separados y solo se
   deduplican repeticiones exactas del mismo evento.
 - El loader audita cada salto temporal: mantenimiento solo dentro del mismo
-  dia, fin de semana solo viernes-domingo y festivos/excepciones solo mediante
-  un calendario JSON explicito con `last_bar`, `next_bar` y `label`. Rechaza
+  dia y fin de semana viernes-domingo unicamente con limites exactos
+  `15:59:00 -> 17:00:00`, sin tolerancia. Festivos/excepciones requieren un
+  calendario JSON explicito con `last_bar`, `next_bar` y `label`. Rechaza
   sesiones ausentes y huecos intradia largos antes de ejecutar la estrategia;
   el manifiesto conserva el SHA-256 del calendario utilizado.
 - `StrategyStreamV23` es la interfaz cerrada compartida por el runner historico
