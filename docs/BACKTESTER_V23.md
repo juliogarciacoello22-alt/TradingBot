@@ -28,6 +28,13 @@ Estado: implementado en una rama aislada para revision. No esta conectado a
 - Cada rechazo conserva `level_id`, `setup_id` y un `event_id` determinista. Los
   eventos simultaneos de setups distintos permanecen separados y solo se
   deduplican repeticiones exactas del mismo evento.
+- El loader audita cada salto temporal: acepta y registra cierres que llegan a
+  la apertura CME de las 17:00 CT y huecos cortos de hasta 10 minutos; rechaza
+  huecos intradia mayores antes de ejecutar la estrategia.
+- `StrategyStreamV23` es la interfaz cerrada compartida por el runner historico
+  y futuros consumidores live. Convierte payloads 1m cerrados al mismo `Bar` y
+  delega en la misma logica causal; las pruebas exigen paridad de decisiones,
+  rechazos y niveles.
 - Comision y slippage configurables; resultados diarios, rechazos y curva en R.
 - Hash SHA-256 del dataset y de la configuracion en cada manifiesto.
 

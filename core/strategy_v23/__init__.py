@@ -3,6 +3,7 @@
 from .config import StrategyConfigV23
 from .models import Bar, Direction, Level, LevelDirection, SignalDecision
 from .strategy_core import StrategyCoreV23
+from .streaming_adapter import StrategyStreamV23
 
 __all__ = [
     "Bar",
@@ -12,5 +13,5 @@ __all__ = [
     "SignalDecision",
     "StrategyConfigV23",
     "StrategyCoreV23",
+    "StrategyStreamV23",
 ]
-

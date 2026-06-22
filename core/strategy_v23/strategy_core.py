@@ -21,6 +21,7 @@ from .models import (
     Rejection,
     Setup,
     SignalDecision,
+    SwingPoint,
 )
 from .session_engine import cme_session_date, in_signal_window
 from .setup_state_machine import advance_setup, start_setup
@@ -35,8 +36,7 @@ class StrategyCoreV23:
         self.indicators = IndicatorEngine(self.config.atr_period, self.config.volume_period)
         self.levels = LevelRegistry(self.config.tick_size)
         self.bars: list[Bar] = []
-        self.swing_highs_1m: list[float] = []
-        self.swing_lows_1m: list[float] = []
+        self.swing_structure_1m: list[SwingPoint] = []
         self.setups: dict[tuple[str, Direction], Setup] = {}
         self.rejections: list[Rejection] = []
         self.signal_counts: Counter[str] = Counter()
@@ -57,6 +57,9 @@ class StrategyCoreV23:
         self.previous_close = None
         self.previous_vwap = None
         self.vwap_direction = LevelDirection.NEUTRAL
+        self.cme_open_level_id = None
+        self.prior_high_level_id = None
+        self.prior_low_level_id = None
 
     def tick(self, value: float) -> float:
         return round_to_tick(value, self.config.tick_size)
@@ -74,16 +77,24 @@ class StrategyCoreV23:
     def _start_session(self, session, bar: Bar) -> None:
         if self.current_cme_session is not None:
             self.previous_cme_range = (self.cme_high, self.cme_low)
+        self.levels.deactivate(self.cme_open_level_id)
+        self.levels.deactivate(self.prior_high_level_id)
+        self.levels.deactivate(self.prior_low_level_id)
         self.current_cme_session = session
         self.cme_high, self.cme_low = bar.high, bar.low
         self.levels.reset_dynamic()
         self.vwap_direction = LevelDirection.NEUTRAL
         self.previous_close = self.previous_vwap = None
-        self._point_level("cme_open", bar.open, bar.timestamp)
+        cme_open = self._point_level("cme_open", bar.open, bar.timestamp)
+        self.cme_open_level_id = cme_open.identifier
         if self.previous_cme_range:
             previous_high, previous_low = self.previous_cme_range
-            self._point_level("prior_high", previous_high, bar.timestamp)
-            self._point_level("prior_low", previous_low, bar.timestamp)
+            prior_high = self._point_level("prior_high", previous_high, bar.timestamp)
+            prior_low = self._point_level("prior_low", previous_low, bar.timestamp)
+            self.prior_high_level_id = prior_high.identifier
+            self.prior_low_level_id = prior_low.identifier
+        else:
+            self.prior_high_level_id = self.prior_low_level_id = None
 
     def _update_operational_levels_before_bar(self, bar: Bar) -> None:
         if self.current_operational_date != bar.timestamp.date():
@@ -132,10 +143,22 @@ class StrategyCoreV23:
             index = len(self.bars) - 3
             candle = self.bars[index]
             neighbors = self.bars[index - 2:index] + self.bars[index + 1:index + 3]
-            if candle.high > max(item.high for item in neighbors):
-                self.swing_highs_1m.append(candle.high)
-            if candle.low < min(item.low for item in neighbors):
-                self.swing_lows_1m.append(candle.low)
+            is_high = candle.high > max(item.high for item in neighbors)
+            is_low = candle.low < min(item.low for item in neighbors)
+            # An outside bar can be both a high and a low, but OHLC data cannot
+            # establish which pivot happened first. Ignore it for structure.
+            if is_high != is_low:
+                self._record_swing("HIGH" if is_high else "LOW", candle, index)
+
+    def _record_swing(self, kind: str, candle: Bar, bar_index: int) -> None:
+        point = SwingPoint(bar_index, candle.timestamp, kind, candle.high if kind == "HIGH" else candle.low)
+        if self.swing_structure_1m and self.swing_structure_1m[-1].kind == kind:
+            previous = self.swing_structure_1m[-1]
+            more_extreme = point.price > previous.price if kind == "HIGH" else point.price < previous.price
+            if more_extreme:
+                self.swing_structure_1m[-1] = point
+            return
+        self.swing_structure_1m.append(point)
 
     def _create_imbalance_and_ob(self, bar: Bar, atr14: float | None) -> None:
         if atr14 and bar.range >= self.config.imbalance_atr_multiple * atr14 and bar.body_ratio >= self.config.imbalance_body_ratio:
@@ -247,8 +270,7 @@ class StrategyCoreV23:
             confirms = confirmations(
                 bar=bar,
                 setup=setup,
-                swing_highs=self.swing_highs_1m,
-                swing_lows=self.swing_lows_1m,
+                swings=self.swing_structure_1m,
                 volume20=snapshot.volume20,
                 atr14=snapshot.atr14,
                 atr_five_bars_ago=snapshot.atr_five_bars_ago,

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from core.strategy_v23.config import StrategyConfigV23
 from core.strategy_v23.models import Bar, Rejection, SignalDecision
-from core.strategy_v23.strategy_core import StrategyCoreV23
+from core.strategy_v23.streaming_adapter import StrategyStreamV23
 
 from .data_loader import LoadedDataset
 from .fill_model import FillModel, Position, TradeResult
@@ -62,7 +62,7 @@ class BacktestRunnerV23:
         self.config = config or StrategyConfigV23()
 
     def run(self, dataset: LoadedDataset, *, metadata: RunMetadata) -> BacktestResult:
-        core = StrategyCoreV23(self.config)
+        strategy = StrategyStreamV23(self.config)
         clock = HistoricalClock()
         fills = FillModel(self.config)
         signals: list[SignalDecision] = []
@@ -96,7 +96,7 @@ class BacktestRunnerV23:
                 if result is not None:
                     trades.append(result)
                     position = None
-            decision = core.process_bar(bar, position_open=was_exposed)
+            decision = strategy.process_closed_bar(bar, position_open=was_exposed)
             if decision is not None:
                 if position is not None or pending_signal is not None:
                     raise AssertionError("Strategy emitted a signal while exposure exists")
@@ -114,7 +114,7 @@ class BacktestRunnerV23:
                 setup_id=pending_signal.metadata.get("setup_id"),
             ))
 
-        rejections = sort_rejections([*core.rejections, *execution_rejections])
+        rejections = sort_rejections([*strategy.rejections, *execution_rejections])
 
         summary, daily, curve = calculate_metrics(
             trades,
@@ -123,6 +123,9 @@ class BacktestRunnerV23:
             rejections=rejections,
         )
         config_json = json.dumps(self.config.as_dict(), sort_keys=True, separators=(",", ":"))
+        gap_counts: dict[str, int] = {}
+        for gap in dataset.gaps:
+            gap_counts[gap.classification] = gap_counts.get(gap.classification, 0) + 1
         manifest = {
             "strategy": "BiUmolo",
             "strategy_version": self.config.version,
@@ -133,6 +136,14 @@ class BacktestRunnerV23:
             "bar_count": len(dataset.bars),
             "first_timestamp": dataset.bars[0].timestamp.isoformat(),
             "last_timestamp": dataset.bars[-1].timestamp.isoformat(),
+            "gap_audit": {
+                "accepted_gap_count": len(dataset.gaps),
+                "classifications": dict(sorted(gap_counts.items())),
+                "maximum_missing_minutes": max(
+                    (gap.missing_minutes for gap in dataset.gaps),
+                    default=0,
+                ),
+            },
             "execution_model": {
                 "entry": "next_bar_open_adverse_slippage_capped_to_ohlc",
                 "stop_gap": "adverse_bar_open_exit_slippage_capped_to_ohlc",

@@ -103,6 +103,18 @@ class Setup:
 
 
 @dataclass(frozen=True)
+class SwingPoint:
+    bar_index: int
+    timestamp: datetime
+    kind: str
+    price: float
+
+    def __post_init__(self):
+        if self.kind not in {"HIGH", "LOW"}:
+            raise ValueError(f"Invalid swing kind: {self.kind}")
+
+
+@dataclass(frozen=True)
 class SignalDecision:
     timestamp: datetime
     side: Direction

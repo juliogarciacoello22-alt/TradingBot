@@ -62,8 +62,17 @@ class LevelRegistry:
                 dynamic=True,
             )
         level = self.dynamic[identifier]
-        level.lower = center - self.tick_size
-        level.upper = center + self.tick_size
+        lower, upper = center - self.tick_size, center + self.tick_size
+        geometry_changed = level.lower != lower or level.upper != upper
+        level.lower = lower
+        level.upper = upper
+        level.created_at = created_at
+        if geometry_changed or not level.active:
+            level.test_count = 0
+            level.state = LevelState.FRESH
+            level.armed = False
+            level.active = True
+            level.inside_closes = 0
         if direction is not None:
             level.direction = direction
         return level

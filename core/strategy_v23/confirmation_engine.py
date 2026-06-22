@@ -1,12 +1,18 @@
-from .models import Bar, Direction, Setup
+from .models import Bar, Direction, Setup, SwingPoint
 
 
 def microstructure_confirmation(
-    swing_highs: list[float],
-    swing_lows: list[float],
+    swings: list[SwingPoint],
     side: Direction,
 ) -> bool:
-    if len(swing_highs) < 2 or len(swing_lows) < 2:
+    if len(swings) < 4:
+        return False
+    recent = swings[-4:]
+    if any(recent[index].kind == recent[index - 1].kind for index in range(1, 4)):
+        return False
+    swing_highs = [point.price for point in recent if point.kind == "HIGH"]
+    swing_lows = [point.price for point in recent if point.kind == "LOW"]
+    if len(swing_highs) != 2 or len(swing_lows) != 2:
         return False
     if side == Direction.BUY:
         return swing_highs[-1] > swing_highs[-2] and swing_lows[-1] > swing_lows[-2]
@@ -17,14 +23,13 @@ def confirmations(
     *,
     bar: Bar,
     setup: Setup,
-    swing_highs: list[float],
-    swing_lows: list[float],
+    swings: list[SwingPoint],
     volume20: float | None,
     atr14: float | None,
     atr_five_bars_ago: float | None,
 ) -> tuple[str, ...]:
     result: list[str] = []
-    if microstructure_confirmation(swing_highs, swing_lows, setup.side):
+    if microstructure_confirmation(swings, setup.side):
         result.append("microstructure")
     if volume20 is not None and bar.volume >= volume20:
         result.append("volume")
@@ -33,4 +38,3 @@ def confirmations(
     if setup.level_kind in {"vwap", "vwap_plus1", "vwap_minus1"}:
         result.append("vwap_rejection")
     return tuple(result)
-

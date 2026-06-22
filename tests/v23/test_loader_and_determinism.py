@@ -27,6 +27,45 @@ class LoaderAndDeterminismTests(unittest.TestCase):
             self.assertEqual(len(dataset.bars), 2)
             self.assertEqual(len(dataset.sha256), 64)
 
+    def test_loader_rejects_unexpected_long_intraday_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gap.Last.txt"
+            path.write_text(
+                "20251104 080000;100;101;99;100.5;10\n"
+                "20251104 120000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Unexpected 239-minute gap"):
+                load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
+    def test_loader_does_not_hide_missing_day_behind_session_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "false-closure.Last.txt"
+            path.write_text(
+                "20251104 080000;100;101;99;100.5;10\n"
+                "20251104 170000;100.5;102;100;101.5;20\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Unexpected 539-minute gap"):
+                load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
+    def test_loader_audits_short_gap_and_expected_session_closure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "audited.Last.txt"
+            path.write_text(
+                "20251104 155900;100;101;99;100.5;10\n"
+                "20251104 170000;100.5;102;100;101.5;20\n"
+                "20251104 170600;101.5;102;101;101.75;15\n",
+                encoding="utf-8",
+            )
+            dataset = load_last_file(path, timezone_name="America/Chicago", tick_size=.25)
+
+            self.assertEqual(
+                [gap.classification for gap in dataset.gaps],
+                ["expected_session_closure", "short_provider_gap"],
+            )
+            self.assertEqual([gap.missing_minutes for gap in dataset.gaps], [60, 5])
+
     def test_runner_is_deterministic(self):
         bars = tuple(
             bar(index, open_=100 + index * .25, high=101 + index * .25,
@@ -63,17 +102,17 @@ class LoaderAndDeterminismTests(unittest.TestCase):
             sequence=1,
         )
 
-        class FakeCore:
+        class FakeStream:
             def __init__(self, _config):
                 self.rejections = []
                 self.calls = 0
 
-            def process_bar(self, _bar, *, position_open=False):
+            def process_closed_bar(self, _bar, *, position_open=False):
                 self.calls += 1
                 return decision if self.calls == 1 else None
 
         dataset = LoadedDataset(Path("synthetic"), "ABC", bars)
-        with patch("backtesting.v23.runner.StrategyCoreV23", FakeCore):
+        with patch("backtesting.v23.runner.StrategyStreamV23", FakeStream):
             result = BacktestRunnerV23(StrategyConfigV23()).run(dataset, metadata=self.metadata)
 
         self.assertEqual(len(result.trades), 1)

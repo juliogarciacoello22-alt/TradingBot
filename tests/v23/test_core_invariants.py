@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from backtesting.v23.metrics import calculate_metrics
 from core.strategy_v23.models import Direction, Rejection, Setup
@@ -58,6 +58,40 @@ class CoreInvariantTests(unittest.TestCase):
         self.assertIsNotNone(reset_vwap)
         self.assertNotEqual(reset_vwap.created_at, first_created_at)
         self.assertEqual(reset_vwap.created_at, next_session.timestamp)
+
+    def test_only_current_session_open_and_prior_levels_remain_active(self):
+        core = StrategyCoreV23()
+        start = datetime(2025, 11, 3, 17, 0, tzinfo=CHICAGO)
+        for day in range(3):
+            timestamp = start + timedelta(days=day)
+            core.process_bar(bar(0).__class__(
+                timestamp,
+                100.0 + day,
+                101.0 + day,
+                99.0 + day,
+                100.5 + day,
+                100.0,
+            ))
+
+        active = core.levels.active()
+        self.assertEqual(sum(level.kind == "cme_open" for level in active), 1)
+        self.assertEqual(sum(level.kind == "prior_high" for level in active), 1)
+        self.assertEqual(sum(level.kind == "prior_low" for level in active), 1)
+
+    def test_dynamic_vwap_recovers_from_invalid_state(self):
+        registry = LevelRegistry(0.25)
+        first = bar(0).timestamp
+        level = registry.update_dynamic("vwap", 100.0, first)
+        level.test_count = 3
+        level.state = level.state.INVALID
+        level.active = False
+
+        updated = registry.update_dynamic("vwap", 100.0, first + timedelta(minutes=1))
+
+        self.assertTrue(updated.active)
+        self.assertEqual(updated.state.value, "fresh")
+        self.assertEqual(updated.test_count, 0)
+        self.assertEqual(updated.created_at, first + timedelta(minutes=1))
 
     def test_daily_metrics_include_zero_trade_days_and_rejections(self):
         rejection = Rejection(bar(0).timestamp, "outside_signal_window")
