@@ -31,6 +31,16 @@ from core.biumolo_config import BASIC_LOG_ONLY
 ACTIVATION_MINUTES = 0
 
 
+def _decision_log(stage, allowed, reason, detail):
+    print(
+        ">> PIPELINE DECISION stage={stage} allowed={allowed} reason={reason} detail={detail}".format(
+            stage=stage,
+            allowed=allowed,
+            reason=reason,
+            detail=detail,
+        )
+    )
+
 class PipelineLivePRO:
     """
     PipelineLive PRO — ÚNICO pipeline productivo
@@ -265,9 +275,19 @@ class PipelineLivePRO:
             # actualizar prev_delta
             self.api.prev_delta = delta_value
 
+            _decision_log(
+                "process",
+                final_signal is not None,
+                "ok" if final_signal is not None else "no_final_signal",
+                "side={side} mode={mode}".format(
+                    side=None if final_signal is None else final_signal.get("side"),
+                    mode=None if final_signal is None else final_signal.get("mode"),
+                ),
+            )
             return final_signal
 
         except Exception as e:
             print("ERROR EN PIPELINE LIVE PRO:", e)
             traceback.print_exc()
+            _decision_log("process", False, "exception", repr(e))
             return None
