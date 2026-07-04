@@ -51,7 +51,7 @@ def backend(api, raw):
     global activation_start
 
     try:
-        print("BACKEND RECIBIÓ:", raw)
+        print("BACKEND RECIBIO:", raw)
 
         # ============================================================
         #   0. PING
@@ -63,7 +63,7 @@ def backend(api, raw):
         #   1. SEÑAL MANUAL INSTITUCIONAL
         # ============================================================
         if "side" in raw and "entry" in raw and "stop" in raw:
-            print(">> SEÑAL MANUAL RECIBIDA:", raw)
+            print(">> SENAL MANUAL RECIBIDA:", raw)
 
             valid, reason = execution_engine.validate(
                 tf={"1m": [], "5m": [], "30m": []},
@@ -75,11 +75,11 @@ def backend(api, raw):
             )
 
             if not valid:
-                print(">> SEÑAL MANUAL CANCELADA —", reason)
+                print(">> SENAL MANUAL CANCELADA -", reason)
                 return None
 
             api.send_signal(raw)
-            print(">> SEÑAL MANUAL ENVIADA")
+            print(">> SENAL MANUAL ENVIADA")
             return raw
 
         # ============================================================
@@ -190,7 +190,7 @@ def backend(api, raw):
             signal["meta"]["risk"] = risk
 
             if isinstance(risk, dict) and not risk.get("valid", True):
-                print(">> SEÑAL CANCELADA POR RISKENGINE —", risk)
+                print(">> SENAL CANCELADA POR RISKENGINE -", risk)
                 signal = None
 
 
@@ -199,7 +199,7 @@ def backend(api, raw):
         # ============================================================
         if signal:
             if isinstance(timing, dict) and not timing.get("valid", True):
-                print(">> SEÑAL CANCELADA POR TIMINGENGINE — timing inválido")
+                print(">> SENAL CANCELADA POR TIMINGENGINE - timing invalido")
                 signal = None
 
         # ============================================================
@@ -220,7 +220,7 @@ def backend(api, raw):
             if valid:
                 final_signal = signal
             else:
-                print(">> SEÑAL RECHAZADA POR EXECUTIONENGINE —", reason)
+                print(">> SENAL RECHAZADA POR EXECUTIONENGINE -", reason)
 
         # ============================================================
         #   16. DASHBOARD
@@ -245,13 +245,13 @@ def backend(api, raw):
 
             # DEDUP INSTITUCIONAL
             if dedup.is_duplicate(final_signal):
-                print("⛔ Señal duplicada — descartada")
+                print("BLOCKED Senal duplicada - descartada")
             else:
-                print("✔ Señal nueva — enviada")
+                print("OK Senal nueva - enviada")
                 log_signal(final_signal)
                 api.send_signal(final_signal)
                 exit_engine.open_from_signal(final_signal)
-                print(">> SEÑAL INSTITUCIONAL ENVIADA A TELEGRAM")
+                print(">> SENAL INSTITUCIONAL ENVIADA A TELEGRAM")
 
         # actualizar prev_delta SOLO si todo llegó aquí
         api.prev_delta = delta_value
