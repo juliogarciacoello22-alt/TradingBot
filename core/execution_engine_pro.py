@@ -1,6 +1,6 @@
 # core/execution_engine_pro.py
 
-print(">>> BIUMOLO — EXECUTION ENGINE PRO ACTIVADO <<<")
+print(">>> BIUMOLO - EXECUTION ENGINE PRO ACTIVADO <<<")
 
 
 class ExecutionEnginePRO:
@@ -130,17 +130,107 @@ class ExecutionEnginePRO:
         # 5. Vela previa fuerte en contra
         # ------------------------------------------------------------
         candle_prev = tf["1m"][-2] if tf.get("1m") and len(tf["1m"]) >= 2 else None
+        prev_strength_threshold = 0.6
+
+        print(">> EXECUTION ENGINE PREV CANDLE START")
+        if candle_prev:
+            prev_open = candle_prev.open
+            prev_high = candle_prev.high
+            prev_low = candle_prev.low
+            prev_close = candle_prev.close
+            prev_body = abs(prev_close - prev_open)
+            prev_range = prev_high - prev_low
+            prev_strength = self._body_strength(candle_prev)
+            if prev_close > prev_open:
+                prev_direction = "bullish"
+            elif prev_close < prev_open:
+                prev_direction = "bearish"
+            else:
+                prev_direction = "flat"
+        else:
+            prev_open = None
+            prev_high = None
+            prev_low = None
+            prev_close = None
+            prev_body = None
+            prev_range = None
+            prev_strength = None
+            prev_direction = "none"
+
+        print(
+            ">> EXECUTION ENGINE PREV CANDLE INPUTS side={side} prev_open={prev_open} prev_high={prev_high} prev_low={prev_low} prev_close={prev_close} prev_body={prev_body} prev_range={prev_range} prev_body_ratio={prev_body_ratio} prev_direction={prev_direction} threshold={threshold}".format(
+                side=side,
+                prev_open=prev_open,
+                prev_high=prev_high,
+                prev_low=prev_low,
+                prev_close=prev_close,
+                prev_body=prev_body,
+                prev_range=prev_range,
+                prev_body_ratio=prev_strength,
+                prev_direction=prev_direction,
+                threshold=prev_strength_threshold,
+            )
+        )
+        print(
+            ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_candle_exists status={status} detail={detail}".format(
+                status="PASS" if candle_prev else "FAIL",
+                detail="available" if candle_prev else "missing",
+            )
+        )
 
         if candle_prev:
-            prev_strength = self._body_strength(candle_prev)
+            print(
+                ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_range_nonzero status={status} detail=prev_range={prev_range}".format(
+                    status="PASS" if prev_range and prev_range > 0 else "FAIL",
+                    prev_range=prev_range,
+                )
+            )
 
             if side == "BUY":
-                if candle_prev.close < candle_prev.open and prev_strength > 0.6:
+                prev_candle_bearish = candle_prev.close < candle_prev.open
+                prev_body_ratio_strong = prev_strength > prev_strength_threshold
+                print(
+                    ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_candle_bearish status={status} detail=prev_open={prev_open} prev_close={prev_close}".format(
+                        status="PASS" if prev_candle_bearish else "FAIL",
+                        prev_open=prev_open,
+                        prev_close=prev_close,
+                    )
+                )
+                print(
+                    ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_body_ratio_strong status={status} detail=prev_body_ratio={prev_body_ratio} threshold_gt={threshold}".format(
+                        status="PASS" if prev_body_ratio_strong else "FAIL",
+                        prev_body_ratio=prev_strength,
+                        threshold=prev_strength_threshold,
+                    )
+                )
+                if prev_candle_bearish and prev_body_ratio_strong:
+                    print(">> EXECUTION ENGINE PREV CANDLE RESULT allowed=false reason=vela previa bajista fuerte")
+                    print(">> EXECUTION ENGINE PREV CANDLE FAILURE reason=vela previa bajista fuerte")
                     return False, "vela previa bajista fuerte"
 
             if side == "SELL":
-                if candle_prev.close > candle_prev.open and prev_strength > 0.6:
+                prev_candle_bullish = candle_prev.close > candle_prev.open
+                prev_body_ratio_strong = prev_strength > prev_strength_threshold
+                print(
+                    ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_candle_bullish status={status} detail=prev_open={prev_open} prev_close={prev_close}".format(
+                        status="PASS" if prev_candle_bullish else "FAIL",
+                        prev_open=prev_open,
+                        prev_close=prev_close,
+                    )
+                )
+                print(
+                    ">> EXECUTION ENGINE PREV CANDLE CHECK name=prev_body_ratio_strong status={status} detail=prev_body_ratio={prev_body_ratio} threshold_gt={threshold}".format(
+                        status="PASS" if prev_body_ratio_strong else "FAIL",
+                        prev_body_ratio=prev_strength,
+                        threshold=prev_strength_threshold,
+                    )
+                )
+                if prev_candle_bullish and prev_body_ratio_strong:
+                    print(">> EXECUTION ENGINE PREV CANDLE RESULT allowed=false reason=vela previa alcista fuerte")
+                    print(">> EXECUTION ENGINE PREV CANDLE FAILURE reason=vela previa alcista fuerte")
                     return False, "vela previa alcista fuerte"
+
+        print(">> EXECUTION ENGINE PREV CANDLE RESULT allowed=true reason=ok")
 
         # ------------------------------------------------------------
         # 6. Momentum PRO
