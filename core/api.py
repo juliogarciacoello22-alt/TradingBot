@@ -5,16 +5,26 @@ from core.feed import Feed
 from core.telegram_bot import TelegramBot
 
 
+def _env_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class API:
     def __init__(self):
         self.last_signal = None
         self.feed = Feed()
 
-        # Telegram Bot
-        self.telegram = TelegramBot(
-            os.getenv("TELEGRAM_TOKEN"),
-            os.getenv("TELEGRAM_CHAT_ID")
-        )
+        # Telegram is opt-in so tests/playback do not send external messages.
+        self.telegram_enabled = _env_flag("TELEGRAM_ENABLED", False)
+        self.telegram = None
+        if self.telegram_enabled:
+            self.telegram = TelegramBot(
+                os.getenv("TELEGRAM_TOKEN"),
+                os.getenv("TELEGRAM_CHAT_ID")
+            )
 
         # WebSocket de NinjaTrader (inyectado desde server.py)
         self.ws = None
@@ -107,6 +117,10 @@ class API:
             print("ERROR enviando señal a NinjaTrader:", e)
 
     async def _send_to_telegram(self, signal):
+        if not self.telegram_enabled or self.telegram is None:
+            print(">>> Telegram disabled - signal not sent")
+            return
+
         try:
             msg = self.format_biumolo_signal(signal)
             await asyncio.to_thread(self.telegram.send, msg)
