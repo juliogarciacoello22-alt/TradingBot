@@ -45,7 +45,13 @@ def write_results(
         json.dumps([_dictionary(record) for record in rejections], indent=2), encoding="utf-8"
     )
     _write_csv(target / "signals.csv", [_dictionary(record) for record in signals])
-    _write_csv(target / "trades.csv", [_dictionary(record) for record in trades])
+    _write_csv(target / "trades.csv", [_trade_dictionary(record) for record in trades])
+
+
+def _trade_dictionary(record: TradeResult) -> dict:
+    row = _dictionary(record)
+    row["contracts"] = 1
+    return row
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -57,4 +63,3 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in row.items()})
-
