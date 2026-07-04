@@ -15,6 +15,7 @@ from core.biumolo_config import (
 from core.execution_engine_pro import execution_engine
 from core.live_timestamp_validator import validate_bar_timestamp
 from core.pipeline_live_pro import PipelineLivePRO
+from core.runtime_guard import sync_api_runtime_mode
 
 app = FastAPI()
 api = API()
@@ -22,8 +23,8 @@ api = API()
 # Activar pipeline PRO unificado
 api.pipeline = PipelineLivePRO(api)
 
-# Flag LIVE/HISTÓRICO
-api.is_live = True
+# Live/historical flag bound to RUN_MODE.
+sync_api_runtime_mode(api)
 
 
 # ============================================================
