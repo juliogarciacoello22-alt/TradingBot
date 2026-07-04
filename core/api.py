@@ -2,6 +2,7 @@ import json
 import os
 import asyncio
 from core.feed import Feed
+from core.runtime_guard import evaluate_signal_permission, log_blocked_execution
 from core.telegram_bot import TelegramBot
 
 
@@ -132,14 +133,20 @@ class API:
     #   API PÚBLICA — ENVÍO ASÍNCRONO REAL (CORREGIDO)
     # ============================================================
     async def send_signal(self, signal):
+        permission = evaluate_signal_permission(signal)
         self.last_signal = signal
         print(">>> Señal recibida:", signal)
 
         # Envío paralelo: NinjaTrader + Telegram
+        if not permission.allowed:
+            log_blocked_execution(permission)
+            return permission.to_dict()
+
         await asyncio.gather(
             self._send_to_ninjatrader(signal),
             self._send_to_telegram(signal)
         )
+        return permission.to_dict()
 
     # ============================================================
     #   OBTENER ÚLTIMA SEÑAL
