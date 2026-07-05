@@ -23,12 +23,125 @@ from core.biumolo_file_logger import (
     log_institucional_file_basic,
     log_institucional_file_extended
 )
+from core import audit_session_logger
 from core.ob_engine import OBEngine
 from core.dedup_engine import DeduplicationEngine
 from core.biumolo_config import BASIC_LOG_ONLY
 
 
 ACTIVATION_MINUTES = 0
+
+
+def _audit_jsonable(value, depth=0):
+    if depth > 6:
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _audit_jsonable(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_jsonable(item, depth + 1) for item in value]
+    if hasattr(value, "__dict__"):
+        return {
+            str(key): _audit_jsonable(item, depth + 1)
+            for key, item in vars(value).items()
+            if not str(key).startswith("_")
+        }
+    return str(value)
+
+
+def _audit_field_present(value):
+    return value is not None
+
+
+def _audit_missing_snapshot_fields(snapshot):
+    required = [
+        ("snapshot.microstructure", snapshot.get("microstructure")),
+        ("snapshot.micro.ob", (snapshot.get("microstructure") or {}).get("ob") if isinstance(snapshot.get("microstructure"), dict) else None),
+        ("snapshot.timing", snapshot.get("timing")),
+        ("snapshot.delta", snapshot.get("delta")),
+        ("snapshot.last_candle", snapshot.get("last_candle")),
+        ("snapshot.tf", snapshot.get("tf")),
+        ("snapshot.context", snapshot.get("context")),
+        ("snapshot.forecast", snapshot.get("forecast")),
+        ("snapshot.price", snapshot.get("price")),
+    ]
+    missing = [name for name, value in required if not _audit_field_present(value)]
+    if not snapshot.get("decision_id") and not snapshot.get("timestamp"):
+        missing.append("decision_id_or_timestamp")
+    return missing
+
+
+def _full_path_microstructure_snapshot(micro):
+    payload = _audit_jsonable(micro)
+    if not isinstance(payload, dict):
+        return payload
+    source = micro if isinstance(micro, dict) else {}
+    for key in (
+        "mitigation_light_reason",
+        "mitigation_overlap_reason",
+        "mitigation_light_v2_reason",
+        "mitigation_contamination_reason",
+    ):
+        payload[key] = _audit_jsonable(source.get(key))
+    return payload
+
+
+def _emit_full_path_snapshot_audit(
+    *,
+    raw,
+    candle,
+    tf,
+    micro_for_valid_entry,
+    timing,
+    delta,
+    context,
+    forecast,
+    signal_engine,
+    signal,
+):
+    try:
+        session_id = audit_session_logger.get_session_id()
+        timestamp = raw.get("timestamp") if isinstance(raw, dict) else None
+        if timestamp is None:
+            timestamp = getattr(candle, "timestamp", None)
+        decision_id = f"{session_id}|{timestamp}" if timestamp is not None else None
+        last_candle = tf.get("1m", [])[-1] if isinstance(tf, dict) and tf.get("1m") else candle
+        snapshot = {
+            "decision_id": decision_id,
+            "timestamp": timestamp,
+            "microstructure": _full_path_microstructure_snapshot(micro_for_valid_entry),
+            "timing": _audit_jsonable(timing),
+            "delta": _audit_jsonable(delta),
+            "last_candle": _audit_jsonable(last_candle),
+            "tf": _audit_jsonable(tf),
+            "context": _audit_jsonable(context),
+            "forecast": _audit_jsonable(forecast),
+            "price": getattr(last_candle, "close", None),
+            "stage_outputs": {
+                "signal_engine": {
+                    "last_valid_entry_reason": getattr(signal_engine, "last_valid_entry_reason", None),
+                    "last_build_signal_reason": getattr(signal_engine, "last_build_signal_reason", None),
+                    "last_valid_entry_shadow": _audit_jsonable(getattr(signal_engine, "last_valid_entry_shadow", None)),
+                    "signal_is_none": signal is None,
+                }
+            },
+        }
+        snapshot["missing_fields"] = _audit_missing_snapshot_fields(snapshot)
+        audit_session_logger.append_jsonl(
+            "signal_engine_full_path_snapshots.jsonl",
+            {
+                "event": "signal_engine_v4_full_path_snapshot",
+                "snapshot": snapshot,
+            },
+        )
+    except Exception as exc:
+        _decision_log(
+            "full_path_snapshot_audit",
+            False,
+            "snapshot_audit_failed",
+            repr(exc),
+        )
 
 
 def _decision_log(stage, allowed, reason, detail):
@@ -191,6 +304,18 @@ class PipelineLivePRO:
                 timing=timing,
                 delta=delta_value,   # numérico
                 forecast=forecast
+            )
+            _emit_full_path_snapshot_audit(
+                raw=raw,
+                candle=candle,
+                tf=tf,
+                micro_for_valid_entry=micro,
+                timing=timing,
+                delta=delta_value,
+                context=context,
+                forecast=forecast,
+                signal_engine=self.signal_engine,
+                signal=signal,
             )
 
             # 13) ENRIQUECER META CON TIMING
