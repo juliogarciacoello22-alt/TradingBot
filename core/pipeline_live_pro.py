@@ -30,6 +30,28 @@ from core.biumolo_config import BASIC_LOG_ONLY
 
 
 ACTIVATION_MINUTES = 0
+_AUDIT_REASON_KEYS = (
+    "mitigation_light_reason",
+    "mitigation_overlap_reason",
+    "mitigation_light_v2_reason",
+    "mitigation_contamination_reason",
+)
+_AUDIT_REQUIRED_SNAPSHOT_FIELDS = (
+    ("snapshot.microstructure", lambda snapshot: snapshot.get("microstructure")),
+    (
+        "snapshot.micro.ob",
+        lambda snapshot: (snapshot.get("microstructure") or {}).get("ob")
+        if isinstance(snapshot.get("microstructure"), dict)
+        else None,
+    ),
+    ("snapshot.timing", lambda snapshot: snapshot.get("timing")),
+    ("snapshot.delta", lambda snapshot: snapshot.get("delta")),
+    ("snapshot.last_candle", lambda snapshot: snapshot.get("last_candle")),
+    ("snapshot.tf", lambda snapshot: snapshot.get("tf")),
+    ("snapshot.context", lambda snapshot: snapshot.get("context")),
+    ("snapshot.forecast", lambda snapshot: snapshot.get("forecast")),
+    ("snapshot.price", lambda snapshot: snapshot.get("price")),
+)
 
 
 def _audit_jsonable(value, depth=0):
@@ -54,19 +76,12 @@ def _audit_field_present(value):
     return value is not None
 
 
+def _audit_required_snapshot_fields(snapshot):
+    return [(name, getter(snapshot)) for name, getter in _AUDIT_REQUIRED_SNAPSHOT_FIELDS]
+
+
 def _audit_missing_snapshot_fields(snapshot):
-    required = [
-        ("snapshot.microstructure", snapshot.get("microstructure")),
-        ("snapshot.micro.ob", (snapshot.get("microstructure") or {}).get("ob") if isinstance(snapshot.get("microstructure"), dict) else None),
-        ("snapshot.timing", snapshot.get("timing")),
-        ("snapshot.delta", snapshot.get("delta")),
-        ("snapshot.last_candle", snapshot.get("last_candle")),
-        ("snapshot.tf", snapshot.get("tf")),
-        ("snapshot.context", snapshot.get("context")),
-        ("snapshot.forecast", snapshot.get("forecast")),
-        ("snapshot.price", snapshot.get("price")),
-    ]
-    missing = [name for name, value in required if not _audit_field_present(value)]
+    missing = [name for name, value in _audit_required_snapshot_fields(snapshot) if not _audit_field_present(value)]
     if not snapshot.get("decision_id") and not snapshot.get("timestamp"):
         missing.append("decision_id_or_timestamp")
     return missing
@@ -77,14 +92,67 @@ def _full_path_microstructure_snapshot(micro):
     if not isinstance(payload, dict):
         return payload
     source = micro if isinstance(micro, dict) else {}
-    for key in (
-        "mitigation_light_reason",
-        "mitigation_overlap_reason",
-        "mitigation_light_v2_reason",
-        "mitigation_contamination_reason",
-    ):
+    for key in _AUDIT_REASON_KEYS:
         payload[key] = _audit_jsonable(source.get(key))
     return payload
+
+
+def _snapshot_timestamp(raw, candle):
+    timestamp = raw.get("timestamp") if isinstance(raw, dict) else None
+    if timestamp is None:
+        timestamp = getattr(candle, "timestamp", None)
+    return timestamp
+
+
+def _snapshot_last_candle(tf, candle):
+    if isinstance(tf, dict) and tf.get("1m"):
+        return tf["1m"][-1]
+    return candle
+
+
+def _signal_engine_stage_snapshot(signal_engine, signal):
+    return {
+        "signal_engine": {
+            "last_valid_entry_reason": getattr(signal_engine, "last_valid_entry_reason", None),
+            "last_build_signal_reason": getattr(signal_engine, "last_build_signal_reason", None),
+            "last_valid_entry_shadow": _audit_jsonable(getattr(signal_engine, "last_valid_entry_shadow", None)),
+            "signal_is_none": signal is None,
+        }
+    }
+
+
+def _build_full_path_snapshot(
+    *,
+    session_id,
+    raw,
+    candle,
+    tf,
+    micro_for_valid_entry,
+    timing,
+    delta,
+    context,
+    forecast,
+    signal_engine,
+    signal,
+):
+    timestamp = _snapshot_timestamp(raw, candle)
+    decision_id = f"{session_id}|{timestamp}" if timestamp is not None else None
+    last_candle = _snapshot_last_candle(tf, candle)
+    snapshot = {
+        "decision_id": decision_id,
+        "timestamp": timestamp,
+        "microstructure": _full_path_microstructure_snapshot(micro_for_valid_entry),
+        "timing": _audit_jsonable(timing),
+        "delta": _audit_jsonable(delta),
+        "last_candle": _audit_jsonable(last_candle),
+        "tf": _audit_jsonable(tf),
+        "context": _audit_jsonable(context),
+        "forecast": _audit_jsonable(forecast),
+        "price": getattr(last_candle, "close", None),
+        "stage_outputs": _signal_engine_stage_snapshot(signal_engine, signal),
+    }
+    snapshot["missing_fields"] = _audit_missing_snapshot_fields(snapshot)
+    return snapshot
 
 
 def _emit_full_path_snapshot_audit(
@@ -101,33 +169,19 @@ def _emit_full_path_snapshot_audit(
     signal,
 ):
     try:
-        session_id = audit_session_logger.get_session_id()
-        timestamp = raw.get("timestamp") if isinstance(raw, dict) else None
-        if timestamp is None:
-            timestamp = getattr(candle, "timestamp", None)
-        decision_id = f"{session_id}|{timestamp}" if timestamp is not None else None
-        last_candle = tf.get("1m", [])[-1] if isinstance(tf, dict) and tf.get("1m") else candle
-        snapshot = {
-            "decision_id": decision_id,
-            "timestamp": timestamp,
-            "microstructure": _full_path_microstructure_snapshot(micro_for_valid_entry),
-            "timing": _audit_jsonable(timing),
-            "delta": _audit_jsonable(delta),
-            "last_candle": _audit_jsonable(last_candle),
-            "tf": _audit_jsonable(tf),
-            "context": _audit_jsonable(context),
-            "forecast": _audit_jsonable(forecast),
-            "price": getattr(last_candle, "close", None),
-            "stage_outputs": {
-                "signal_engine": {
-                    "last_valid_entry_reason": getattr(signal_engine, "last_valid_entry_reason", None),
-                    "last_build_signal_reason": getattr(signal_engine, "last_build_signal_reason", None),
-                    "last_valid_entry_shadow": _audit_jsonable(getattr(signal_engine, "last_valid_entry_shadow", None)),
-                    "signal_is_none": signal is None,
-                }
-            },
-        }
-        snapshot["missing_fields"] = _audit_missing_snapshot_fields(snapshot)
+        snapshot = _build_full_path_snapshot(
+            session_id=audit_session_logger.get_session_id(),
+            raw=raw,
+            candle=candle,
+            tf=tf,
+            micro_for_valid_entry=micro_for_valid_entry,
+            timing=timing,
+            delta=delta,
+            context=context,
+            forecast=forecast,
+            signal_engine=signal_engine,
+            signal=signal,
+        )
         audit_session_logger.append_jsonl(
             "signal_engine_full_path_snapshots.jsonl",
             {

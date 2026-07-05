@@ -144,82 +144,86 @@ class MicrostructureEngine:
     # ============================================================
     #   MITIGACIÓN LIGHT
     # ============================================================
-    def _mitigation_light_diagnostics(self, c, prev):
-        if not prev:
-            return {
-                "value": False,
-                "reason": "no_previous_candle",
-                "prev_close_inside_current_range": False,
-                "current_close_inside_prev_range": False,
-                "current_low": c.low,
-                "current_high": c.high,
-                "current_close": c.close,
-                "previous_low": None,
-                "previous_high": None,
-                "previous_close": None,
-            }
-
-        prev_close_inside_current_range = c.low < prev.close < c.high
-        current_close_inside_prev_range = prev.low < c.close < prev.high
-
+    @staticmethod
+    def _mitigation_overlap_reason(prev_close_inside_current_range, current_close_inside_prev_range):
         if prev_close_inside_current_range and current_close_inside_prev_range:
-            reason = "both_close_overlaps"
-        elif prev_close_inside_current_range:
-            reason = "previous_close_inside_current_range"
-        elif current_close_inside_prev_range:
-            reason = "current_close_inside_previous_range"
-        else:
-            reason = "no_close_overlap"
+            return "both_close_overlaps"
+        if prev_close_inside_current_range:
+            return "previous_close_inside_current_range"
+        if current_close_inside_prev_range:
+            return "current_close_inside_previous_range"
+        return "no_close_overlap"
 
+    @staticmethod
+    def _mitigation_light_snapshot(
+        c,
+        prev,
+        *,
+        value,
+        reason,
+        prev_close_inside_current_range,
+        current_close_inside_prev_range,
+    ):
         return {
-            "value": prev_close_inside_current_range or current_close_inside_prev_range,
+            "value": value,
             "reason": reason,
             "prev_close_inside_current_range": prev_close_inside_current_range,
             "current_close_inside_prev_range": current_close_inside_prev_range,
             "current_low": c.low,
             "current_high": c.high,
             "current_close": c.close,
-            "previous_low": prev.low,
-            "previous_high": prev.high,
-            "previous_close": prev.close,
+            "previous_low": None if prev is None else prev.low,
+            "previous_high": None if prev is None else prev.high,
+            "previous_close": None if prev is None else prev.close,
         }
+
+    def _mitigation_light_diagnostics(self, c, prev):
+        if not prev:
+            return self._mitigation_light_snapshot(
+                c,
+                prev,
+                value=False,
+                reason="no_previous_candle",
+                prev_close_inside_current_range=False,
+                current_close_inside_prev_range=False,
+            )
+
+        prev_close_inside_current_range = c.low < prev.close < c.high
+        current_close_inside_prev_range = prev.low < c.close < prev.high
+        reason = self._mitigation_overlap_reason(
+            prev_close_inside_current_range,
+            current_close_inside_prev_range,
+        )
+
+        return self._mitigation_light_snapshot(
+            c,
+            prev,
+            value=prev_close_inside_current_range or current_close_inside_prev_range,
+            reason=reason,
+            prev_close_inside_current_range=prev_close_inside_current_range,
+            current_close_inside_prev_range=current_close_inside_prev_range,
+        )
 
     def _mitigation_light(self, c, prev):
         return self._mitigation_light_diagnostics(c, prev)["value"]
 
-    def _mitigation_light_v2_shadow(
-        self,
-        mitigation_overlap,
-        mitigation_overlap_reason,
-        disp,
-        momentum,
-        sweep,
-        absorption,
-        breaker,
-        fake_displacement,
-        delta,
-    ):
-        direction = disp if disp in ("up", "down") else momentum
-        if direction not in ("up", "down"):
-            return {
-                "mitigation_overlap": mitigation_overlap,
-                "mitigation_overlap_reason": mitigation_overlap_reason,
-                "mitigation_contamination": False,
-                "mitigation_contamination_reason": "no_directional_context",
-                "mitigation_light_v2": False,
-                "mitigation_light_v2_reason": "no_directional_context",
-            }
+    @staticmethod
+    def _mitigation_direction(disp, momentum):
+        return disp if disp in ("up", "down") else momentum
 
-        if not mitigation_overlap:
-            return {
-                "mitigation_overlap": False,
-                "mitigation_overlap_reason": mitigation_overlap_reason,
-                "mitigation_contamination": False,
-                "mitigation_contamination_reason": "no_overlap",
-                "mitigation_light_v2": False,
-                "mitigation_light_v2_reason": "no_overlap",
-            }
+    @staticmethod
+    def _mitigation_v2_payload(mitigation_overlap, mitigation_overlap_reason, contamination, reason):
+        return {
+            "mitigation_overlap": mitigation_overlap,
+            "mitigation_overlap_reason": mitigation_overlap_reason,
+            "mitigation_contamination": contamination,
+            "mitigation_contamination_reason": reason,
+            "mitigation_light_v2": contamination,
+            "mitigation_light_v2_reason": reason,
+        }
 
+    @staticmethod
+    def _mitigation_v2_counter_reasons(direction, sweep, absorption, breaker, fake_displacement, delta):
         counter_reasons = []
 
         if (direction == "up" and sweep == "up") or (direction == "down" and sweep == "down"):
@@ -240,33 +244,69 @@ class MicrostructureEngine:
             if (direction == "up" and delta <= 0) or (direction == "down" and delta >= 0):
                 counter_reasons.append("delta_conflict")
 
-        if not counter_reasons:
-            if mitigation_overlap_reason in (
-                "previous_close_inside_current_range",
-                "current_close_inside_previous_range",
-                "both_close_overlaps",
-            ):
-                reason = "overlap_only"
-            else:
-                reason = "insufficient_structural_context"
-            return {
-                "mitigation_overlap": True,
-                "mitigation_overlap_reason": mitigation_overlap_reason,
-                "mitigation_contamination": False,
-                "mitigation_contamination_reason": reason,
-                "mitigation_light_v2": False,
-                "mitigation_light_v2_reason": reason,
-            }
+        return counter_reasons
 
-        reason = "+".join(counter_reasons)
-        return {
-            "mitigation_overlap": True,
-            "mitigation_overlap_reason": mitigation_overlap_reason,
-            "mitigation_contamination": True,
-            "mitigation_contamination_reason": reason,
-            "mitigation_light_v2": True,
-            "mitigation_light_v2_reason": reason,
-        }
+    @staticmethod
+    def _mitigation_v2_reason_without_counter_reasons(mitigation_overlap_reason):
+        if mitigation_overlap_reason in (
+            "previous_close_inside_current_range",
+            "current_close_inside_previous_range",
+            "both_close_overlaps",
+        ):
+            return "overlap_only"
+        return "insufficient_structural_context"
+
+    def _mitigation_light_v2_shadow(
+        self,
+        mitigation_overlap,
+        mitigation_overlap_reason,
+        disp,
+        momentum,
+        sweep,
+        absorption,
+        breaker,
+        fake_displacement,
+        delta,
+    ):
+        direction = self._mitigation_direction(disp, momentum)
+        if direction not in ("up", "down"):
+            return self._mitigation_v2_payload(
+                mitigation_overlap,
+                mitigation_overlap_reason,
+                False,
+                "no_directional_context",
+            )
+
+        if not mitigation_overlap:
+            return self._mitigation_v2_payload(
+                False,
+                mitigation_overlap_reason,
+                False,
+                "no_overlap",
+            )
+
+        counter_reasons = self._mitigation_v2_counter_reasons(
+            direction,
+            sweep,
+            absorption,
+            breaker,
+            fake_displacement,
+            delta,
+        )
+        if not counter_reasons:
+            return self._mitigation_v2_payload(
+                True,
+                mitigation_overlap_reason,
+                False,
+                self._mitigation_v2_reason_without_counter_reasons(mitigation_overlap_reason),
+            )
+
+        return self._mitigation_v2_payload(
+            True,
+            mitigation_overlap_reason,
+            True,
+            "+".join(counter_reasons),
+        )
 
     # ============================================================
     #   FAKE DISPLACEMENT PRO
