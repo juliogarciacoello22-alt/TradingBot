@@ -1,5 +1,15 @@
 # core/ob_engine.py
 
+def _decision_log(stage, allowed, reason, detail):
+    print(
+        ">> OB ENGINE DECISION stage={stage} allowed={allowed} reason={reason} detail={detail}".format(
+            stage=stage,
+            allowed=allowed,
+            reason=reason,
+            detail=detail,
+        )
+    )
+
 class OBEngine:
     """
     OBEngine PRO — BIUMOLO INSTITUTIONAL
@@ -142,10 +152,35 @@ class OBEngine:
         raw = self._raw_ob(candles)
         validated = self._validate_ob(raw, micro)
 
+        if not raw:
+            _decision_log("detect_ob", False, "raw_ob_missing", "candles={count}".format(count=len(candles)))
+            return None
+
         if not validated:
+            _decision_log(
+                "detect_ob",
+                False,
+                "validation_failed",
+                "raw_type={ob_type} displacement={displacement}".format(
+                    ob_type=raw.get("type"),
+                    displacement=raw.get("displacement"),
+                ),
+            )
             return None
 
         final = self._mark_mitigation(validated, candles[-1])
+
+        _decision_log(
+            "detect_ob",
+            True,
+            "ok",
+            "type={ob_type} valid={valid} strength={strength} mitigated={mitigated}".format(
+                ob_type=final.get("type"),
+                valid=final.get("valid"),
+                strength=final.get("strength"),
+                mitigated=final.get("mitigated"),
+            ),
+        )
 
         self.last_ob = final
         return final

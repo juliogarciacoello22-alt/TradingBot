@@ -15,6 +15,7 @@ from core.biumolo_config import (
 from core.execution_engine_pro import execution_engine
 from core.live_timestamp_validator import validate_bar_timestamp
 from core.pipeline_live_pro import PipelineLivePRO
+from core.runtime_guard import sync_api_runtime_mode
 
 app = FastAPI()
 api = API()
@@ -22,8 +23,8 @@ api = API()
 # Activar pipeline PRO unificado
 api.pipeline = PipelineLivePRO(api)
 
-# Flag LIVE/HISTÓRICO
-api.is_live = True
+# Live/historical flag bound to RUN_MODE.
+sync_api_runtime_mode(api)
 
 
 # ============================================================
@@ -40,6 +41,7 @@ if SHOW_STARTUP_STATUS:
 # ============================================================
 @app.post("/send_signal")
 async def send_signal(signal: dict):
+    sync_api_runtime_mode(api)
 
     print(">>> Senal manual recibida:", signal)
 
@@ -56,7 +58,15 @@ async def send_signal(signal: dict):
         print(">>> SENAL MANUAL CANCELADA -", reason)
         return {"status": "rejected", "reason": reason}
 
-    await api.send_signal(signal)
+    result = await api.send_signal(signal)
+    if isinstance(result, dict) and not result.get("allowed", True):
+        return {
+            "status": "blocked",
+            "reason": result.get("reason"),
+            "run_mode": result.get("run_mode"),
+            "account": result.get("account"),
+            "EnableTrading": result.get("enable_trading"),
+        }
     return {"status": "ok", "sent": signal}
 
 

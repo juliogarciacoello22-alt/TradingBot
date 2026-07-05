@@ -2,7 +2,15 @@ import json
 import os
 import asyncio
 from core.feed import Feed
+from core.runtime_guard import evaluate_signal_permission, log_blocked_execution
 from core.telegram_bot import TelegramBot
+
+
+def _env_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class API:
@@ -10,11 +18,14 @@ class API:
         self.last_signal = None
         self.feed = Feed()
 
-        # Telegram Bot
-        self.telegram = TelegramBot(
-            os.getenv("TELEGRAM_TOKEN"),
-            os.getenv("TELEGRAM_CHAT_ID")
-        )
+        # Telegram is opt-in so tests/playback do not send external messages.
+        self.telegram_enabled = _env_flag("TELEGRAM_ENABLED", False)
+        self.telegram = None
+        if self.telegram_enabled:
+            self.telegram = TelegramBot(
+                os.getenv("TELEGRAM_TOKEN"),
+                os.getenv("TELEGRAM_CHAT_ID")
+            )
 
         # WebSocket de NinjaTrader (inyectado desde server.py)
         self.ws = None
@@ -107,6 +118,10 @@ class API:
             print("ERROR enviando señal a NinjaTrader:", e)
 
     async def _send_to_telegram(self, signal):
+        if not self.telegram_enabled or self.telegram is None:
+            print(">>> Telegram disabled - signal not sent")
+            return
+
         try:
             msg = self.format_biumolo_signal(signal)
             await asyncio.to_thread(self.telegram.send, msg)
@@ -118,14 +133,20 @@ class API:
     #   API PÚBLICA — ENVÍO ASÍNCRONO REAL (CORREGIDO)
     # ============================================================
     async def send_signal(self, signal):
+        permission = evaluate_signal_permission(signal)
         self.last_signal = signal
         print(">>> Señal recibida:", signal)
 
         # Envío paralelo: NinjaTrader + Telegram
+        if not permission.allowed:
+            log_blocked_execution(permission)
+            return permission.to_dict()
+
         await asyncio.gather(
             self._send_to_ninjatrader(signal),
             self._send_to_telegram(signal)
         )
+        return permission.to_dict()
 
     # ============================================================
     #   OBTENER ÚLTIMA SEÑAL

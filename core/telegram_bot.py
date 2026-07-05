@@ -4,7 +4,7 @@ import time
 
 class TelegramBot:
     def __init__(self, token=None, chat_id=None):
-        # Carga automática desde .env si no se pasan argumentos
+        # Carga automatica desde .env si no se pasan argumentos
         self.token = token or os.getenv("TELEGRAM_TOKEN")
         self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
 
@@ -48,7 +48,7 @@ class TelegramBot:
                 if r.status_code != 200:
                     print(f"❌ Telegram error HTTP {r.status_code}: {r.text}")
 
-                    # Rate limit → esperar y reintentar
+                    # Rate limit -> esperar y reintentar
                     if r.status_code == 429:
                         time.sleep(1.5)
                         continue
@@ -64,7 +64,7 @@ class TelegramBot:
         return None
 
     # ============================================================
-    #   API PÚBLICA
+    #   API PUBLICA
     # ============================================================
     def send(self, text):
         if not isinstance(text, str):

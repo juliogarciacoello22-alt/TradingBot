@@ -1,5 +1,15 @@
 # core/microstructure_engine.py
 
+def _decision_log(stage, allowed, reason, detail):
+    print(
+        ">> MICROSTRUCTURE DECISION stage={stage} allowed={allowed} reason={reason} detail={detail}".format(
+            stage=stage,
+            allowed=allowed,
+            reason=reason,
+            detail=detail,
+        )
+    )
+
 class MicrostructureEngine:
     """
     MicrostructureEngine PRO — Institucional + Delta PRO
@@ -318,5 +328,17 @@ class MicrostructureEngine:
 
         self.prev2 = self.prev
         self.prev = c
+
+        _decision_log(
+            "process",
+            True,
+            "ok",
+            "displacement={displacement} momentum={momentum} mitigation_light={mitigation_light} fake_displacement={fake_displacement}".format(
+                displacement=data.get("displacement"),
+                momentum=data.get("momentum"),
+                mitigation_light=data.get("mitigation_light"),
+                fake_displacement=data.get("fake_displacement"),
+            ),
+        )
 
         return data
