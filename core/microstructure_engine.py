@@ -36,23 +36,36 @@ class MicrostructureEngine:
     # ============================================================
     #   DISPLACEMENT PRO (delta confirmado)
     # ============================================================
-    def _displacement(self, c, delta):
+    def _displacement_with_reason(self, c, delta):
         body = abs(c.close - c.open)
         rng = c.high - c.low
+        threshold = 0.55
+        body_ratio = None if rng == 0 else body / rng
+        diagnostics = {
+            "body_ratio": body_ratio,
+            "body_threshold": threshold,
+            "body_size": body,
+            "range": rng,
+            "delta": delta,
+        }
         if rng == 0:
-            return None
+            return None, "zero_range", diagnostics
 
-        if body < rng * 0.55:
-            return None
+        if body < rng * threshold:
+            return None, "body_too_small", diagnostics
 
         disp = "up" if c.close > c.open else "down"
 
         if delta is not None:
             if disp == "up" and delta <= 0:
-                return None
+                return None, "delta_not_confirming_up", diagnostics
             if disp == "down" and delta >= 0:
-                return None
+                return None, "delta_not_confirming_down", diagnostics
 
+        return disp, "{direction}_conditions_passed".format(direction=disp), diagnostics
+
+    def _displacement(self, c, delta):
+        disp, _reason, _diagnostics = self._displacement_with_reason(c, delta)
         return disp
 
     # ============================================================
@@ -131,13 +144,129 @@ class MicrostructureEngine:
     # ============================================================
     #   MITIGACIÓN LIGHT
     # ============================================================
-    def _mitigation_light(self, c, prev):
+    def _mitigation_light_diagnostics(self, c, prev):
         if not prev:
-            return False
-        return (
-            (c.low < prev.close < c.high) or
-            (prev.low < c.close < prev.high)
-        )
+            return {
+                "value": False,
+                "reason": "no_previous_candle",
+                "prev_close_inside_current_range": False,
+                "current_close_inside_prev_range": False,
+                "current_low": c.low,
+                "current_high": c.high,
+                "current_close": c.close,
+                "previous_low": None,
+                "previous_high": None,
+                "previous_close": None,
+            }
+
+        prev_close_inside_current_range = c.low < prev.close < c.high
+        current_close_inside_prev_range = prev.low < c.close < prev.high
+
+        if prev_close_inside_current_range and current_close_inside_prev_range:
+            reason = "both_close_overlaps"
+        elif prev_close_inside_current_range:
+            reason = "previous_close_inside_current_range"
+        elif current_close_inside_prev_range:
+            reason = "current_close_inside_previous_range"
+        else:
+            reason = "no_close_overlap"
+
+        return {
+            "value": prev_close_inside_current_range or current_close_inside_prev_range,
+            "reason": reason,
+            "prev_close_inside_current_range": prev_close_inside_current_range,
+            "current_close_inside_prev_range": current_close_inside_prev_range,
+            "current_low": c.low,
+            "current_high": c.high,
+            "current_close": c.close,
+            "previous_low": prev.low,
+            "previous_high": prev.high,
+            "previous_close": prev.close,
+        }
+
+    def _mitigation_light(self, c, prev):
+        return self._mitigation_light_diagnostics(c, prev)["value"]
+
+    def _mitigation_light_v2_shadow(
+        self,
+        mitigation_overlap,
+        mitigation_overlap_reason,
+        disp,
+        momentum,
+        sweep,
+        absorption,
+        breaker,
+        fake_displacement,
+        delta,
+    ):
+        direction = disp if disp in ("up", "down") else momentum
+        if direction not in ("up", "down"):
+            return {
+                "mitigation_overlap": mitigation_overlap,
+                "mitigation_overlap_reason": mitigation_overlap_reason,
+                "mitigation_contamination": False,
+                "mitigation_contamination_reason": "no_directional_context",
+                "mitigation_light_v2": False,
+                "mitigation_light_v2_reason": "no_directional_context",
+            }
+
+        if not mitigation_overlap:
+            return {
+                "mitigation_overlap": False,
+                "mitigation_overlap_reason": mitigation_overlap_reason,
+                "mitigation_contamination": False,
+                "mitigation_contamination_reason": "no_overlap",
+                "mitigation_light_v2": False,
+                "mitigation_light_v2_reason": "no_overlap",
+            }
+
+        counter_reasons = []
+
+        if (direction == "up" and sweep == "up") or (direction == "down" and sweep == "down"):
+            counter_reasons.append("counter_sweep")
+
+        if (direction == "up" and absorption == "buy") or (direction == "down" and absorption == "sell"):
+            counter_reasons.append("counter_absorption")
+
+        if isinstance(breaker, dict):
+            breaker_type = breaker.get("type")
+            if (direction == "up" and breaker_type == "bearish") or (direction == "down" and breaker_type == "bullish"):
+                counter_reasons.append("counter_breaker")
+
+        if fake_displacement:
+            counter_reasons.append("fake_displacement_true")
+
+        if delta is not None:
+            if (direction == "up" and delta <= 0) or (direction == "down" and delta >= 0):
+                counter_reasons.append("delta_conflict")
+
+        if not counter_reasons:
+            if mitigation_overlap_reason in (
+                "previous_close_inside_current_range",
+                "current_close_inside_previous_range",
+                "both_close_overlaps",
+            ):
+                reason = "overlap_only"
+            else:
+                reason = "insufficient_structural_context"
+            return {
+                "mitigation_overlap": True,
+                "mitigation_overlap_reason": mitigation_overlap_reason,
+                "mitigation_contamination": False,
+                "mitigation_contamination_reason": reason,
+                "mitigation_light_v2": False,
+                "mitigation_light_v2_reason": reason,
+            }
+
+        reason = "+".join(counter_reasons)
+        return {
+            "mitigation_overlap": True,
+            "mitigation_overlap_reason": mitigation_overlap_reason,
+            "mitigation_contamination": True,
+            "mitigation_contamination_reason": reason,
+            "mitigation_light_v2": True,
+            "mitigation_light_v2_reason": reason,
+        }
 
     # ============================================================
     #   FAKE DISPLACEMENT PRO
@@ -288,7 +417,7 @@ class MicrostructureEngine:
         prev = self.prev
         prev2 = self.prev2
 
-        disp = self._displacement(c, delta)
+        disp, displacement_reason, displacement_diagnostics = self._displacement_with_reason(c, delta)
         sweep = self._sweep(c, prev)
         liquidity = self._liquidity(c, prev)
         premium_discount = self._premium_discount(c)
@@ -307,13 +436,46 @@ class MicrostructureEngine:
         fake_disp = self._fake_displacement(
             c, prev, disp, sweep, inducement, breaker, absorption, liquidity, delta
         )
+        mitigation_light_diagnostics = self._mitigation_light_diagnostics(c, prev)
+        mitigation_light_v2_shadow = self._mitigation_light_v2_shadow(
+            mitigation_light_diagnostics["value"],
+            mitigation_light_diagnostics["reason"],
+            disp,
+            momentum,
+            sweep,
+            absorption,
+            breaker,
+            fake_disp,
+            delta,
+        )
 
         data = {
             "displacement": disp,
+            "displacement_reason": displacement_reason,
+            "displacement_body_ratio": displacement_diagnostics["body_ratio"],
+            "displacement_body_threshold": displacement_diagnostics["body_threshold"],
+            "displacement_body_size": displacement_diagnostics["body_size"],
+            "displacement_range": displacement_diagnostics["range"],
+            "displacement_delta": displacement_diagnostics["delta"],
             "sweep": sweep,
             "momentum": momentum,
             "inducement": inducement,
-            "mitigation_light": self._mitigation_light(c, prev),
+            "mitigation_light": mitigation_light_diagnostics["value"],
+            "mitigation_light_reason": mitigation_light_diagnostics["reason"],
+            "mitigation_light_prev_close_inside_current_range": mitigation_light_diagnostics["prev_close_inside_current_range"],
+            "mitigation_light_current_close_inside_prev_range": mitigation_light_diagnostics["current_close_inside_prev_range"],
+            "mitigation_light_current_low": mitigation_light_diagnostics["current_low"],
+            "mitigation_light_current_high": mitigation_light_diagnostics["current_high"],
+            "mitigation_light_current_close": mitigation_light_diagnostics["current_close"],
+            "mitigation_light_previous_low": mitigation_light_diagnostics["previous_low"],
+            "mitigation_light_previous_high": mitigation_light_diagnostics["previous_high"],
+            "mitigation_light_previous_close": mitigation_light_diagnostics["previous_close"],
+            "mitigation_overlap": mitigation_light_v2_shadow["mitigation_overlap"],
+            "mitigation_overlap_reason": mitigation_light_v2_shadow["mitigation_overlap_reason"],
+            "mitigation_contamination": mitigation_light_v2_shadow["mitigation_contamination"],
+            "mitigation_contamination_reason": mitigation_light_v2_shadow["mitigation_contamination_reason"],
+            "mitigation_light_v2": mitigation_light_v2_shadow["mitigation_light_v2"],
+            "mitigation_light_v2_reason": mitigation_light_v2_shadow["mitigation_light_v2_reason"],
             "fake_displacement": fake_disp,
             "absorption": absorption,
             "breaker": breaker,
@@ -333,10 +495,31 @@ class MicrostructureEngine:
             "process",
             True,
             "ok",
-            "displacement={displacement} momentum={momentum} mitigation_light={mitigation_light} fake_displacement={fake_displacement}".format(
+            "displacement={displacement} displacement_reason={displacement_reason} displacement_body_ratio={displacement_body_ratio} displacement_body_threshold={displacement_body_threshold} displacement_body_size={displacement_body_size} displacement_range={displacement_range} displacement_delta={displacement_delta} momentum={momentum} mitigation_light={mitigation_light} mitigation_light_reason={mitigation_light_reason} mitigation_light_prev_close_inside_current_range={mitigation_light_prev_close_inside_current_range} mitigation_light_current_close_inside_prev_range={mitigation_light_current_close_inside_prev_range} mitigation_light_current_low={mitigation_light_current_low} mitigation_light_current_high={mitigation_light_current_high} mitigation_light_current_close={mitigation_light_current_close} mitigation_light_previous_low={mitigation_light_previous_low} mitigation_light_previous_high={mitigation_light_previous_high} mitigation_light_previous_close={mitigation_light_previous_close} mitigation_overlap={mitigation_overlap} mitigation_overlap_reason={mitigation_overlap_reason} mitigation_contamination={mitigation_contamination} mitigation_contamination_reason={mitigation_contamination_reason} mitigation_light_v2={mitigation_light_v2} mitigation_light_v2_reason={mitigation_light_v2_reason} fake_displacement={fake_displacement}".format(
                 displacement=data.get("displacement"),
+                displacement_reason=data.get("displacement_reason"),
+                displacement_body_ratio=data.get("displacement_body_ratio"),
+                displacement_body_threshold=data.get("displacement_body_threshold"),
+                displacement_body_size=data.get("displacement_body_size"),
+                displacement_range=data.get("displacement_range"),
+                displacement_delta=data.get("displacement_delta"),
                 momentum=data.get("momentum"),
                 mitigation_light=data.get("mitigation_light"),
+                mitigation_light_reason=data.get("mitigation_light_reason"),
+                mitigation_light_prev_close_inside_current_range=data.get("mitigation_light_prev_close_inside_current_range"),
+                mitigation_light_current_close_inside_prev_range=data.get("mitigation_light_current_close_inside_prev_range"),
+                mitigation_light_current_low=data.get("mitigation_light_current_low"),
+                mitigation_light_current_high=data.get("mitigation_light_current_high"),
+                mitigation_light_current_close=data.get("mitigation_light_current_close"),
+                mitigation_light_previous_low=data.get("mitigation_light_previous_low"),
+                mitigation_light_previous_high=data.get("mitigation_light_previous_high"),
+                mitigation_light_previous_close=data.get("mitigation_light_previous_close"),
+                mitigation_overlap=data.get("mitigation_overlap"),
+                mitigation_overlap_reason=data.get("mitigation_overlap_reason"),
+                mitigation_contamination=data.get("mitigation_contamination"),
+                mitigation_contamination_reason=data.get("mitigation_contamination_reason"),
+                mitigation_light_v2=data.get("mitigation_light_v2"),
+                mitigation_light_v2_reason=data.get("mitigation_light_v2_reason"),
                 fake_displacement=data.get("fake_displacement"),
             ),
         )

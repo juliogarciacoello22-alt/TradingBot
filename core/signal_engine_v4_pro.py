@@ -16,6 +16,7 @@ class SignalEngineV4:
         self.reaction = reaction_engine
         self.last_build_signal_reason = None
         self.last_valid_entry_reason = None
+        self.last_valid_entry_shadow = None
 
     def _log_check(self, name, status, reason=None, detail=None):
         line = f">> SIGNAL CHECK name={name} status={'PASS' if status else 'FAIL'}"
@@ -24,6 +25,98 @@ class SignalEngineV4:
         if detail is not None:
             line += f" detail={detail}"
         print(line)
+
+    def _log_shadow(self, name, status, reason=None, detail=None):
+        line = f">> SIGNAL SHADOW name={name} status={'PASS' if status else 'FAIL'}"
+        if reason is not None:
+            line += f" reason={reason}"
+        if detail is not None:
+            line += f" detail={detail}"
+        print(line)
+
+    def _valid_entry_shadow_without_mitigation_v1(self, micro):
+        displacement_present = bool(micro.get("displacement"))
+        momentum_present = bool(micro.get("momentum"))
+        fake_displacement_false = not bool(micro.get("fake_displacement"))
+        inducement_ok = micro.get("inducement") != "fake"
+        blocked_by_v1 = bool(micro.get("mitigation_light"))
+        would_pass_without_v1 = (
+            displacement_present
+            and momentum_present
+            and fake_displacement_false
+            and inducement_ok
+            and blocked_by_v1
+        )
+        v2_reason = (
+            micro.get("mitigation_light_v2_reason")
+            or micro.get("mitigation_contamination_reason")
+            or "not_available"
+        )
+        v2_contamination = bool(micro.get("mitigation_light_v2")) or bool(micro.get("mitigation_contamination"))
+        would_block_by_v2 = would_pass_without_v1 and v2_contamination
+        comparable = would_pass_without_v1
+        ab_shadow_v2_result = None if not comparable else not would_block_by_v2
+        if not comparable:
+            ab_delta = None
+        elif would_block_by_v2:
+            ab_delta = "both_block"
+        else:
+            ab_delta = "shadow_would_unlock"
+
+        shadow = {
+            "valid_entry_shadow_without_mitigation_v1": would_pass_without_v1,
+            "would_pass_valid_entry_without_v1": would_pass_without_v1,
+            "valid_entry_shadow_v2_mitigation": would_block_by_v2,
+            "would_block_by_v2_contamination": would_block_by_v2,
+            "blocked_by_v1_but_v2_reason": v2_reason if would_pass_without_v1 else None,
+            "blocked_by_v1_but_v2_contamination": would_block_by_v2,
+            "valid_entry_ab_real_v1_result": False if comparable else None,
+            "valid_entry_ab_shadow_v2_result": ab_shadow_v2_result,
+            "valid_entry_ab_delta": ab_delta,
+            "valid_entry_ab_reason": v2_reason if comparable else None,
+            "valid_entry_ab_v1_blocked": comparable,
+            "valid_entry_ab_v2_blocked": would_block_by_v2,
+            "valid_entry_ab_shadow_would_unlock": comparable and not would_block_by_v2,
+        }
+        micro.update(shadow)
+        self.last_valid_entry_shadow = shadow
+        return shadow
+
+    def _log_valid_entry_mitigation_shadow(self, shadow):
+        self._log_shadow(
+            "valid_entry_without_v1_mitigation",
+            shadow["would_pass_valid_entry_without_v1"],
+            reason=shadow["blocked_by_v1_but_v2_reason"],
+            detail=(
+                "would_pass_valid_entry_without_v1={would_pass} "
+                "would_block_by_v2_contamination={v2_block} "
+                "blocked_by_v1_but_v2_contamination={v2_contamination}"
+            ).format(
+                would_pass=shadow["would_pass_valid_entry_without_v1"],
+                v2_block=shadow["would_block_by_v2_contamination"],
+                v2_contamination=shadow["blocked_by_v1_but_v2_contamination"],
+            ),
+        )
+        self._log_shadow(
+            "valid_entry_ab_mitigation",
+            shadow["valid_entry_ab_shadow_would_unlock"],
+            reason=shadow["valid_entry_ab_reason"],
+            detail=(
+                "real_v1_result={real_v1} "
+                "shadow_v2_result={shadow_v2} "
+                "delta={delta} "
+                "v1_blocked={v1_blocked} "
+                "v2_blocked={v2_blocked} "
+                "shadow_would_unlock={unlock}"
+            ).format(
+                real_v1=shadow["valid_entry_ab_real_v1_result"],
+                shadow_v2=shadow["valid_entry_ab_shadow_v2_result"],
+                delta=shadow["valid_entry_ab_delta"],
+                v1_blocked=shadow["valid_entry_ab_v1_blocked"],
+                v2_blocked=shadow["valid_entry_ab_v2_blocked"],
+                unlock=shadow["valid_entry_ab_shadow_would_unlock"],
+            ),
+        )
 
     def _log_result(self, signal, reason):
         self.last_build_signal_reason = reason
@@ -39,6 +132,9 @@ class SignalEngineV4:
     # ============================================================
     def _valid_entry(self, micro):
         self.last_valid_entry_reason = None
+        self.last_valid_entry_shadow = None
+        shadow = self._valid_entry_shadow_without_mitigation_v1(micro)
+
         if not micro.get("displacement"):
             self.last_valid_entry_reason = "missing_displacement"
             self._log_check("valid_entry.displacement", False, reason="missing_displacement")
@@ -66,6 +162,7 @@ class SignalEngineV4:
         if micro.get("mitigation_light"):
             self.last_valid_entry_reason = "mitigation_light_true"
             self._log_check("valid_entry.mitigation_light", False, reason="mitigation_light_true")
+            self._log_valid_entry_mitigation_shadow(shadow)
             return False
         self._log_check("valid_entry.mitigation_light", True, reason="mitigation_light_false")
 
