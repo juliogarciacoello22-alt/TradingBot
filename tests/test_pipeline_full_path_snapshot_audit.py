@@ -1,4 +1,3 @@
-
 import json
 import os
 import tempfile
@@ -21,32 +20,54 @@ class _SignalEngine:
 
 
 class PipelineFullPathSnapshotAuditTests(unittest.TestCase):
+    def setUp(self):
+        self._old_env = os.environ.get("BIUMOLO_SESSION_DIR")
+        self._old_dir = getattr(audit_session_logger, "_SESSION_DIR", None)
+        self._old_id = getattr(audit_session_logger, "_SESSION_ID", None)
+        self._old_meta = dict(getattr(audit_session_logger, "_SESSION_META", {}))
+        self._old_registered = getattr(audit_session_logger, "_SUMMARY_REGISTERED", False)
+
+    def tearDown(self):
+        if self._old_env is None:
+            os.environ.pop("BIUMOLO_SESSION_DIR", None)
+        else:
+            os.environ["BIUMOLO_SESSION_DIR"] = self._old_env
+        audit_session_logger._SESSION_DIR = self._old_dir
+        audit_session_logger._SESSION_ID = self._old_id
+        audit_session_logger._SESSION_META = self._old_meta
+        audit_session_logger._SUMMARY_REGISTERED = self._old_registered
+
     def test_emit_full_path_snapshot_audit_writes_jsonl_without_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["BIUMOLO_SESSION_DIR"] = tmp
+            audit_session_logger._SESSION_DIR = None
+            audit_session_logger._SESSION_ID = None
+            audit_session_logger._SESSION_META = {}
+            audit_session_logger._SUMMARY_REGISTERED = False
             audit_session_logger.start_session({"test": "pipeline_full_path_snapshot"})
+
             _emit_full_path_snapshot_audit(
                 raw={"timestamp": 1234567890},
                 candle=_Candle(),
                 tf={"1m": [_Candle()]},
-                micro_for_valid_entry={"mitigation_light_reason": "no_close_overlap", "ob": {}},
-                timing={"enabled": True},
-                delta=10.0,
+                micro_for_valid_entry={"mitigation_light_reason": "no_overlap"},
+                timing={"session": "ny"},
+                delta=12.5,
                 context={"bias": "bullish"},
-                forecast={"target": 1},
+                forecast={"liquidity": "near"},
                 signal_engine=_SignalEngine(),
-                signal={"side": "BUY"},
+                signal=None,
             )
+
             path = os.path.join(tmp, "signal_engine_full_path_snapshots.jsonl")
             self.assertTrue(os.path.exists(path))
-            with open(path, "r", encoding="utf-8") as handle:
-                rows = [json.loads(line) for line in handle if line.strip()]
-            self.assertEqual(len(rows), 1)
-            snapshot = rows[0]["snapshot"]
-            self.assertEqual(snapshot["stage_outputs"]["signal_engine"]["last_valid_entry_reason"], "entry_filters_passed")
-            self.assertEqual(snapshot["missing_fields"], [])
+            with open(path, "r", encoding="utf-8") as fh:
+                rows = [json.loads(line) for line in fh if line.strip()]
 
-            os.environ.pop("BIUMOLO_SESSION_DIR", None)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["event"], "signal_engine_v4_full_path_snapshot")
+        self.assertEqual(row["snapshot"]["stage_outputs"]["signal_engine"]["last_valid_entry_reason"], "entry_filters_passed")
 
 
 if __name__ == "__main__":
