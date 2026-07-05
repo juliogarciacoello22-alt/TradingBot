@@ -1,4 +1,4 @@
-﻿# core/signal_engine_v4.py
+# core/signal_engine_v4.py
 
 class SignalEngineV4:
     """
@@ -18,21 +18,47 @@ class SignalEngineV4:
         self.last_valid_entry_reason = None
         self.last_valid_entry_shadow = None
 
-    def _log_check(self, name, status, reason=None, detail=None):
-        line = f">> SIGNAL CHECK name={name} status={'PASS' if status else 'FAIL'}"
+    @staticmethod
+    def _signal_log_prefix(kind):
+        return "SIGNAL CHECK" if kind == "check" else "SIGNAL SHADOW"
+
+    def _signal_log_line(self, kind, name, status, reason=None, detail=None):
+        line = f">> {self._signal_log_prefix(kind)} name={name} status={'PASS' if status else 'FAIL'}"
         if reason is not None:
             line += f" reason={reason}"
         if detail is not None:
             line += f" detail={detail}"
-        print(line)
+        return line
+
+    def _log_check(self, name, status, reason=None, detail=None):
+        print(self._signal_log_line("check", name, status, reason=reason, detail=detail))
 
     def _log_shadow(self, name, status, reason=None, detail=None):
-        line = f">> SIGNAL SHADOW name={name} status={'PASS' if status else 'FAIL'}"
-        if reason is not None:
-            line += f" reason={reason}"
-        if detail is not None:
-            line += f" detail={detail}"
-        print(line)
+        print(self._signal_log_line("shadow", name, status, reason=reason, detail=detail))
+
+    @staticmethod
+    def _shadow_v2_reason(micro):
+        return (
+            micro.get("mitigation_light_v2_reason")
+            or micro.get("mitigation_contamination_reason")
+            or "not_available"
+        )
+
+    @staticmethod
+    def _shadow_v2_contamination(micro):
+        return bool(micro.get("mitigation_light_v2")) or bool(micro.get("mitigation_contamination"))
+
+    @staticmethod
+    def _shadow_delta(comparable, would_block_by_v2):
+        if not comparable:
+            return None
+        if would_block_by_v2:
+            return "both_block"
+        return "shadow_would_unlock"
+
+    def _reset_valid_entry_state(self):
+        self.last_valid_entry_reason = None
+        self.last_valid_entry_shadow = None
 
     def _valid_entry_shadow_without_mitigation_v1(self, micro):
         displacement_present = bool(micro.get("displacement"))
@@ -47,21 +73,11 @@ class SignalEngineV4:
             and inducement_ok
             and blocked_by_v1
         )
-        v2_reason = (
-            micro.get("mitigation_light_v2_reason")
-            or micro.get("mitigation_contamination_reason")
-            or "not_available"
-        )
-        v2_contamination = bool(micro.get("mitigation_light_v2")) or bool(micro.get("mitigation_contamination"))
-        would_block_by_v2 = would_pass_without_v1 and v2_contamination
+        v2_reason = self._shadow_v2_reason(micro)
+        would_block_by_v2 = would_pass_without_v1 and self._shadow_v2_contamination(micro)
         comparable = would_pass_without_v1
         ab_shadow_v2_result = None if not comparable else not would_block_by_v2
-        if not comparable:
-            ab_delta = None
-        elif would_block_by_v2:
-            ab_delta = "both_block"
-        else:
-            ab_delta = "shadow_would_unlock"
+        ab_delta = self._shadow_delta(comparable, would_block_by_v2)
 
         shadow = {
             "valid_entry_shadow_without_mitigation_v1": would_pass_without_v1,
@@ -127,44 +143,59 @@ class SignalEngineV4:
             )
         )
 
+    def _fail_valid_entry(self, check_name, reason, *, shadow=None, emit_shadow=False):
+        self.last_valid_entry_reason = reason
+        self._log_check(check_name, False, reason=reason)
+        if emit_shadow and shadow is not None:
+            self._log_valid_entry_mitigation_shadow(shadow)
+        return False
+
+    def _pass_valid_entry_check(self, check_name, reason, detail=None):
+        self._log_check(check_name, True, reason=reason, detail=detail)
+
     # ============================================================
     #   VALIDACIÓN INSTITUCIONAL
     # ============================================================
     def _valid_entry(self, micro):
-        self.last_valid_entry_reason = None
-        self.last_valid_entry_shadow = None
+        self._reset_valid_entry_state()
         shadow = self._valid_entry_shadow_without_mitigation_v1(micro)
 
         if not micro.get("displacement"):
-            self.last_valid_entry_reason = "missing_displacement"
-            self._log_check("valid_entry.displacement", False, reason="missing_displacement")
-            return False
-        self._log_check("valid_entry.displacement", True, reason="displacement_present", detail=repr(micro.get("displacement")))
+            return self._fail_valid_entry("valid_entry.displacement", "missing_displacement")
+        self._pass_valid_entry_check(
+            "valid_entry.displacement",
+            "displacement_present",
+            detail=repr(micro.get("displacement")),
+        )
 
         if not micro.get("momentum"):
-            self.last_valid_entry_reason = "missing_momentum"
-            self._log_check("valid_entry.momentum", False, reason="missing_momentum")
-            return False
-        self._log_check("valid_entry.momentum", True, reason="momentum_present", detail=repr(micro.get("momentum")))
+            return self._fail_valid_entry("valid_entry.momentum", "missing_momentum")
+        self._pass_valid_entry_check(
+            "valid_entry.momentum",
+            "momentum_present",
+            detail=repr(micro.get("momentum")),
+        )
 
         if micro.get("fake_displacement"):
-            self.last_valid_entry_reason = "fake_displacement_true"
-            self._log_check("valid_entry.fake_displacement", False, reason="fake_displacement_true")
-            return False
-        self._log_check("valid_entry.fake_displacement", True, reason="fake_displacement_false")
+            return self._fail_valid_entry("valid_entry.fake_displacement", "fake_displacement_true")
+        self._pass_valid_entry_check("valid_entry.fake_displacement", "fake_displacement_false")
 
         if micro.get("inducement") == "fake":
-            self.last_valid_entry_reason = "fake_inducement"
-            self._log_check("valid_entry.inducement", False, reason="fake_inducement")
-            return False
-        self._log_check("valid_entry.inducement", True, reason="inducement_ok", detail=repr(micro.get("inducement")))
+            return self._fail_valid_entry("valid_entry.inducement", "fake_inducement")
+        self._pass_valid_entry_check(
+            "valid_entry.inducement",
+            "inducement_ok",
+            detail=repr(micro.get("inducement")),
+        )
 
         if micro.get("mitigation_light"):
-            self.last_valid_entry_reason = "mitigation_light_true"
-            self._log_check("valid_entry.mitigation_light", False, reason="mitigation_light_true")
-            self._log_valid_entry_mitigation_shadow(shadow)
-            return False
-        self._log_check("valid_entry.mitigation_light", True, reason="mitigation_light_false")
+            return self._fail_valid_entry(
+                "valid_entry.mitigation_light",
+                "mitigation_light_true",
+                shadow=shadow,
+                emit_shadow=True,
+            )
+        self._pass_valid_entry_check("valid_entry.mitigation_light", "mitigation_light_false")
 
         self.last_valid_entry_reason = "entry_filters_passed"
         self._log_check("valid_entry", True, reason="entry_filters_passed")

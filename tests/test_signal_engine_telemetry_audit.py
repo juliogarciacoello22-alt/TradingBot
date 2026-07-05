@@ -51,6 +51,27 @@ class SignalEngineTelemetryAuditTests(unittest.TestCase):
         self.assertIsInstance(self.engine.last_valid_entry_shadow, dict)
         self.assertIsNone(self.engine.last_valid_entry_shadow["valid_entry_ab_delta"])
 
+    def test_valid_entry_still_uses_v1_mitigation_as_operational_block(self):
+        micro = {
+            "displacement": "up",
+            "momentum": "up",
+            "fake_displacement": False,
+            "inducement": None,
+            "mitigation_light": False,
+            "mitigation_contamination": True,
+            "mitigation_light_v2": True,
+            "mitigation_contamination_reason": "counter_sweep",
+        }
+
+        result = self.engine._valid_entry(micro)
+
+        self.assertTrue(result)
+        self.assertEqual(self.engine.last_valid_entry_reason, "entry_filters_passed")
+        self.assertIsInstance(self.engine.last_valid_entry_shadow, dict)
+        self.assertFalse(self.engine.last_valid_entry_shadow["valid_entry_ab_v2_blocked"])
+        self.assertIsNone(self.engine.last_valid_entry_shadow["valid_entry_ab_delta"])
+        self.assertFalse(self.engine.last_valid_entry_shadow["valid_entry_ab_v1_blocked"])
+
 
 if __name__ == "__main__":
     unittest.main()
