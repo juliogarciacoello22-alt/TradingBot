@@ -213,6 +213,23 @@ def _decision_log(stage, allowed, reason, detail):
             detail=detail,
         )
     )
+    try:
+        audit_session_logger.append_jsonl(
+            "pipeline_decisions.jsonl",
+            {
+                "event": "pipeline_decision",
+                "session_id": audit_session_logger.get_session_id(),
+                "stage": stage,
+                "allowed": bool(allowed),
+                "reason": reason,
+                "detail": detail,
+                "dispatch_attempted": False,
+                "send_signal_called": False,
+                "audit_only": True,
+            },
+        )
+    except Exception as exc:
+        safe_print("PIPELINE DECISION JSONL LOG FAILED:", repr(exc))
 
 class PipelineLivePRO:
     """
