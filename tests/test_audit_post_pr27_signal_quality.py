@@ -11,7 +11,7 @@ def _write_jsonl(path: Path, rows: list[dict]):
 
 
 class PostPR27SignalQualityAuditTests(unittest.TestCase):
-    def test_collects_real_outputs_shadow_unlocks_and_safety(self):
+    def test_collects_real_outputs_shadow_unlocks_and_confirmed_zero_event_safety(self):
         with tempfile.TemporaryDirectory() as tmp:
             session = Path(tmp)
 
@@ -78,10 +78,32 @@ class PostPR27SignalQualityAuditTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["shadow_unlocks"], 1)
         self.assertEqual(report["metrics"]["dispatch_events"], 0)
         self.assertEqual(report["metrics"]["telegram_events"], 0)
+        self.assertEqual(report["artifact_presence"]["dispatch_events.jsonl"], True)
+        self.assertEqual(report["artifact_presence"]["telegram_events.jsonl"], True)
+        self.assertEqual(report["missing_artifacts"], [])
         self.assertEqual(report["classification"]["safety"], "PASS")
         self.assertEqual(report["classification"]["operational_authorization"], "NO_GO")
         self.assertEqual(report["reason_counts"]["missing_fields"], [("snapshot.micro.ob", 1)])
 
+    def test_missing_dispatch_or_telegram_artifacts_make_safety_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session = Path(tmp)
+            _write_jsonl(session / "signal_engine_full_path_snapshots.jsonl", [])
+            _write_jsonl(session / "pipeline_decisions.jsonl", [])
+
+            report = collect_quality(session)
+
+        self.assertEqual(report["metrics"]["dispatch_events"], 0)
+        self.assertEqual(report["metrics"]["telegram_events"], 0)
+        self.assertEqual(report["artifact_presence"]["dispatch_events.jsonl"], False)
+        self.assertEqual(report["artifact_presence"]["telegram_events.jsonl"], False)
+        self.assertEqual(
+            report["missing_artifacts"],
+            ["dispatch_events.jsonl", "telegram_events.jsonl"],
+        )
+        self.assertEqual(report["classification"]["safety"], "INCOMPLETE")
+
 
 if __name__ == "__main__":
     unittest.main()
+

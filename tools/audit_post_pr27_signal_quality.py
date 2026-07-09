@@ -17,8 +17,12 @@ GENERATED_REASONS = {"scalper_generated", "swing_generated"}
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    return _read_jsonl_with_presence(path)[1]
+
+
+def _read_jsonl_with_presence(path: Path) -> tuple[bool, list[dict[str, Any]]]:
     if not path.exists():
-        return []
+        return False, []
     rows: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = line.strip()
@@ -27,7 +31,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         value = json.loads(line)
         if isinstance(value, dict):
             rows.append(value)
-    return rows
+    return True, rows
 
 
 def _signal_engine(snapshot_row: dict[str, Any]) -> dict[str, Any]:
@@ -67,10 +71,18 @@ def _reason(signal_engine: dict[str, Any]) -> str:
 
 def collect_quality(session_dir: Path) -> dict[str, Any]:
     session_dir = Path(session_dir)
-    snapshots = _read_jsonl(session_dir / "signal_engine_full_path_snapshots.jsonl")
-    decisions = _read_jsonl(session_dir / "pipeline_decisions.jsonl")
-    dispatch = _read_jsonl(session_dir / "dispatch_events.jsonl")
-    telegram = _read_jsonl(session_dir / "telegram_events.jsonl")
+    snapshots_present, snapshots = _read_jsonl_with_presence(
+        session_dir / "signal_engine_full_path_snapshots.jsonl"
+    )
+    decisions_present, decisions = _read_jsonl_with_presence(
+        session_dir / "pipeline_decisions.jsonl"
+    )
+    dispatch_present, dispatch = _read_jsonl_with_presence(
+        session_dir / "dispatch_events.jsonl"
+    )
+    telegram_present, telegram = _read_jsonl_with_presence(
+        session_dir / "telegram_events.jsonl"
+    )
 
     build_reasons: Counter = Counter()
     valid_reasons: Counter = Counter()
@@ -124,6 +136,19 @@ def collect_quality(session_dir: Path) -> dict[str, Any]:
     for row in decisions:
         decision_reasons[str(row.get("reason") or "unknown")] += 1
 
+    artifact_presence = {
+        "signal_engine_full_path_snapshots.jsonl": snapshots_present,
+        "pipeline_decisions.jsonl": decisions_present,
+        "dispatch_events.jsonl": dispatch_present,
+        "telegram_events.jsonl": telegram_present,
+    }
+    missing_artifacts = [
+        name for name, present in artifact_presence.items() if not present
+    ]
+    safety = "FAIL" if dispatch or telegram else "PASS"
+    if missing_artifacts:
+        safety = "INCOMPLETE"
+
     return {
         "session_dir": str(session_dir),
         "metrics": {
@@ -134,6 +159,8 @@ def collect_quality(session_dir: Path) -> dict[str, Any]:
             "dispatch_events": len(dispatch),
             "telegram_events": len(telegram),
         },
+        "artifact_presence": artifact_presence,
+        "missing_artifacts": missing_artifacts,
         "reason_counts": {
             "build_signal": build_reasons.most_common(),
             "valid_entry": valid_reasons.most_common(),
@@ -146,7 +173,7 @@ def collect_quality(session_dir: Path) -> dict[str, Any]:
             "shadow_unlocks": shadow_unlocks[:25],
         },
         "classification": {
-            "safety": "PASS" if not dispatch and not telegram else "FAIL",
+            "safety": safety,
             "signal_quality_review": "REQUIRED" if real_outputs else "NO_REAL_OUTPUTS",
             "shadow_unlock_review": "REQUIRED" if shadow_unlocks else "NO_SHADOW_UNLOCKS",
             "operational_authorization": "NO_GO",
@@ -155,6 +182,7 @@ def collect_quality(session_dir: Path) -> dict[str, Any]:
             "real_generated_signals are internal SignalEngine outputs, not orders",
             "shadow_unlocks are research counters, not V2 activation approval",
             "dispatch_events and telegram_events must remain zero for this audit",
+            "missing dispatch/telegram artifacts mean absence is unconfirmed",
             "this tool is read-only and does not run the pipeline",
         ],
     }
@@ -180,6 +208,14 @@ def format_markdown(report: dict[str, Any]) -> str:
     ]
     for key, value in report["metrics"].items():
         lines.append(f"- `{key}`: {value}")
+
+    lines.extend(["", "## Artifact Presence", ""])
+    for key, value in report["artifact_presence"].items():
+        lines.append(f"- `{key}`: {value}")
+    if report["missing_artifacts"]:
+        lines.append(f"- `missing_artifacts`: {report['missing_artifacts']}")
+    else:
+        lines.append("- `missing_artifacts`: []")
 
     for title, key in [
         ("Build Signal Reasons", "build_signal"),
@@ -234,3 +270,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
