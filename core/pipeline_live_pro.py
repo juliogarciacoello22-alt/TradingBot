@@ -1,3 +1,4 @@
+import asyncio
 # core/pipeline_live_pro.py
 
 import time
@@ -27,6 +28,11 @@ from core import audit_session_logger
 from core.ob_engine import OBEngine
 from core.dedup_engine import DeduplicationEngine
 from core.biumolo_config import BASIC_LOG_ONLY
+
+
+def safe_print(*args):
+    text = " ".join(str(arg) for arg in args)
+    print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
 ACTIVATION_MINUTES = 0
@@ -199,7 +205,7 @@ def _emit_full_path_snapshot_audit(
 
 
 def _decision_log(stage, allowed, reason, detail):
-    print(
+    safe_print(
         ">> PIPELINE DECISION stage={stage} allowed={allowed} reason={reason} detail={detail}".format(
             stage=stage,
             allowed=allowed,
@@ -210,9 +216,9 @@ def _decision_log(stage, allowed, reason, detail):
 
 class PipelineLivePRO:
     """
-    PipelineLive PRO — ÚNICO pipeline productivo
+    PipelineLive PRO â€” ÃšNICO pipeline productivo
     --------------------------------------------
-    - Feed 1m → Timeframes
+    - Feed 1m â†’ Timeframes
     - Delta PRO
     - Microestructura PRO
     - OB PRO
@@ -223,12 +229,12 @@ class PipelineLivePRO:
     - RiskEngine v4 PRO
     - ExecutionEngine PRO
     - Dedup PRO
-    - Envío a Telegram / NinjaTrader
+    - EnvÃ­o a Telegram / NinjaTrader
     """
 
     def __init__(self, api, is_live=True):
         self.api = api
-        self.is_live = is_live  # 🔒 bloqueo institucional de envío
+        self.is_live = is_live  # ðŸ”’ bloqueo institucional de envÃ­o
         self.reaction_engine = ReactionLevelEngine()
         self.micro_engine = MicrostructureEngine()
         self.context_engine = ContextEngine()
@@ -247,7 +253,7 @@ class PipelineLivePRO:
             self.api.prev_delta = None
 
     # ------------------------------------------------------------
-    # LOG DE SEÑALES
+    # LOG DE SEÃ‘ALES
     # ------------------------------------------------------------
     def _log_signal(self, final_signal):
         os.makedirs("logs", exist_ok=True)
@@ -258,18 +264,39 @@ class PipelineLivePRO:
     # ------------------------------------------------------------
     # PROCESO PRINCIPAL
     # ------------------------------------------------------------
+    def _dispatch_signal(self, signal):
+        coro = self.api.send_signal(signal)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        task = loop.create_task(coro)
+
+        def _done_callback(done_task):
+            try:
+                exc = done_task.exception()
+            except Exception as err:
+                safe_print(f"SIGNAL DISPATCH CALLBACK ERROR: {err}")
+                return
+            if exc:
+                safe_print(f"SIGNAL DISPATCH ERROR: {exc}")
+
+        task.add_done_callback(_done_callback)
+        return task
+
     def process(self, raw):
         try:
             if not BASIC_LOG_ONLY:
-                print("PIPELINE LIVE PRO RECIBIO:", raw)
+                safe_print("PIPELINE LIVE PRO RECEIVED:", raw)
 
             # 0) PING
             if raw.get("ping") is True:
                 return None
 
-            # 1) SEÑAL MANUAL
+            # 1) SEÃ‘AL MANUAL
             if "side" in raw and "entry" in raw and "stop" in raw:
-                print(">> SEÑAL MANUAL RECIBIDA:", raw)
+                safe_print("MANUAL SIGNAL RECEIVED:", raw)
 
                 valid, reason = execution_engine.validate(
                     tf={"1m": [], "5m": [], "30m": []},
@@ -281,15 +308,15 @@ class PipelineLivePRO:
                 )
 
                 if not valid:
-                    print(">> SEÑAL MANUAL CANCELADA —", reason)
+                    safe_print("MANUAL SIGNAL CANCELLED -", reason)
                     return None
 
-                # 🔒 bloqueo por is_live
+                # ðŸ”’ bloqueo por is_live
                 if self.is_live:
-                    self.api.send_signal(raw)
-                    print(">> SEÑAL MANUAL ENVIADA")
+                    self._dispatch_signal(raw)
+                    safe_print("MANUAL SIGNAL SENT")
                 else:
-                    print(">>> MODO HISTÓRICO — señal manual NO enviada")
+                    safe_print("HISTORICAL MODE - manual signal not sent")
 
                 return raw
 
@@ -309,18 +336,18 @@ class PipelineLivePRO:
                 if elapsed < ACTIVATION_MINUTES:
                     return None
 
-            # 5) REQUISITOS MÍNIMOS
+            # 5) REQUISITOS MÃNIMOS
             if len(tf["1m"]) < 1 or len(tf["5m"]) < 3 or len(tf["30m"]) < 1:
                 return None
 
             candle = tf["1m"][-1]
 
-            # 6) GESTIÓN DE SALIDA
+            # 6) GESTIÃ“N DE SALIDA
             if self.exit_engine.has_open_trade():
                 trade_closed = self.exit_engine.check_exit(candle.close)
                 if trade_closed:
                     log_trade(trade_closed)
-                    print(">> TRADE CERRADO:", trade_closed)
+                    safe_print("TRADE CLOSED:", trade_closed)
 
             # 7) DELTA PRO
             delta_value = delta_calc.compute_delta(candle)
@@ -356,7 +383,7 @@ class PipelineLivePRO:
                 micro=micro,
                 context=context,
                 timing=timing,
-                delta=delta_value,   # numérico
+                delta=delta_value,   # numÃ©rico
                 forecast=forecast
             )
             _emit_full_path_snapshot_audit(
@@ -396,16 +423,16 @@ class PipelineLivePRO:
                 signal["meta"]["risk"] = risk_meta
 
                 if isinstance(risk, dict) and not risk.get("valid", True):
-                    print(">> SEÑAL CANCELADA POR RISKENGINE —", risk)
+                    safe_print("SIGNAL CANCELLED BY RISKENGINE -", risk)
                     signal = None
 
             # 15) FILTRO POR TIMING
             if signal:
                 if isinstance(timing, dict) and not timing.get("valid", True):
-                    print(">> SEÑAL CANCELADA POR TIMINGENGINE —", timing.get("reason"))
+                    safe_print("SIGNAL CANCELLED BY TIMINGENGINE -", timing.get("reason"))
                     signal = None
 
-            # 16) VALIDACIÓN FINAL — EXECUTION ENGINE PRO
+            # 16) VALIDACIÃ“N FINAL â€” EXECUTION ENGINE PRO
             final_signal = None
 
             if signal:
@@ -421,7 +448,7 @@ class PipelineLivePRO:
                 if valid:
                     final_signal = signal
                 else:
-                    print(">> SEÑAL RECHAZADA POR EXECUTIONENGINE —", reason)
+                    safe_print("SIGNAL REJECTED BY EXECUTIONENGINE -", reason)
 
             # 17) DASHBOARD
             update_dashboard(candle, micro, final_signal)
@@ -435,21 +462,21 @@ class PipelineLivePRO:
                 final_signal
             )
 
-            # 19) LOG + DEDUP + ENVÍO + ABRIR TRADE
+            # 19) LOG + DEDUP + ENVÃO + ABRIR TRADE
             if final_signal:
 
                 if self.dedup.is_duplicate(final_signal):
-                    print("⛔ Señal duplicada — descartada")
+                    safe_print("SIGNAL DUPLICATE - discarded")
                 else:
-                    print("✔ Señal nueva — procesada")
+                    safe_print("SIGNAL NEW - processed")
                     self._log_signal(final_signal)
 
                     if self.is_live:
-                        self.api.send_signal(final_signal)
+                        self._dispatch_signal(final_signal)
                         self.exit_engine.open_from_signal(final_signal)
-                        print(">> SEÑAL INSTITUCIONAL ENVIADA A TELEGRAM / NINJATRADER")
+                        safe_print("INSTITUTIONAL SIGNAL SENT TO TELEGRAM / NINJATRADER")
                     else:
-                        print(">>> MODO HISTÓRICO — señal NO enviada, solo logueada")
+                        safe_print("HISTORICAL MODE - signal not sent, logged only")
 
             # actualizar prev_delta
             self.api.prev_delta = delta_value
@@ -466,7 +493,10 @@ class PipelineLivePRO:
             return final_signal
 
         except Exception as e:
-            print("ERROR EN PIPELINE LIVE PRO:", e)
+            safe_print("ERROR IN PIPELINE LIVE PRO:", e)
             traceback.print_exc()
             _decision_log("process", False, "exception", repr(e))
             return None
+
+
+
