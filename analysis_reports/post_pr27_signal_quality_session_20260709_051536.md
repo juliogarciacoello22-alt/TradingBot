@@ -14,6 +14,14 @@
 - `dispatch_events`: 0
 - `telegram_events`: 0
 
+## Artifact Presence
+
+- `signal_engine_full_path_snapshots.jsonl`: True
+- `pipeline_decisions.jsonl`: True
+- `dispatch_events.jsonl`: True
+- `telegram_events.jsonl`: True
+- `missing_artifacts`: []
+
 ## Build Signal Reasons
 
 | reason | count |
@@ -128,4 +136,5 @@
 - real_generated_signals are internal SignalEngine outputs, not orders
 - shadow_unlocks are research counters, not V2 activation approval
 - dispatch_events and telegram_events must remain zero for this audit
+- missing dispatch/telegram artifacts mean absence is unconfirmed
 - this tool is read-only and does not run the pipeline
