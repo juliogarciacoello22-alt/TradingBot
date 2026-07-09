@@ -94,7 +94,6 @@ Before any Sim101 action, a human must explicitly approve:
 - maximum exposure,
 - test window,
 - stop conditions,
-
 - rollback plan.
 
 ## Current Recommendation
