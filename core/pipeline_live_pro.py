@@ -281,23 +281,40 @@ class PipelineLivePRO:
     # ------------------------------------------------------------
     # PROCESO PRINCIPAL
     # ------------------------------------------------------------
-    def _dispatch_signal(self, signal):
+    def _dispatch_signal(self, signal, on_allowed=None):
         coro = self.api.send_signal(signal)
+
+        def handle_result(result):
+            allowed = isinstance(result, dict) and result.get("allowed") is True
+
+            if allowed:
+                if on_allowed is not None:
+                    on_allowed()
+            else:
+                reason = (
+                    result.get("reason", "unknown")
+                    if isinstance(result, dict)
+                    else "invalid_dispatch_result"
+                )
+                safe_print(f"SIGNAL DISPATCH BLOCKED: {reason}")
+
+            return result
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(coro)
+            return handle_result(asyncio.run(coro))
 
         task = loop.create_task(coro)
 
         def _done_callback(done_task):
             try:
-                exc = done_task.exception()
+                result = done_task.result()
             except Exception as err:
-                safe_print(f"SIGNAL DISPATCH CALLBACK ERROR: {err}")
+                safe_print(f"SIGNAL DISPATCH ERROR: {err}")
                 return
-            if exc:
-                safe_print(f"SIGNAL DISPATCH ERROR: {exc}")
+
+            handle_result(result)
 
         task.add_done_callback(_done_callback)
         return task
@@ -489,9 +506,16 @@ class PipelineLivePRO:
                     self._log_signal(final_signal)
 
                     if self.is_live:
-                        self._dispatch_signal(final_signal)
-                        self.exit_engine.open_from_signal(final_signal)
-                        safe_print("INSTITUTIONAL SIGNAL SENT TO TELEGRAM / NINJATRADER")
+                        def _on_dispatch_allowed():
+                            self.exit_engine.open_from_signal(final_signal)
+                            safe_print(
+                                "INSTITUTIONAL SIGNAL SENT TO TELEGRAM / NINJATRADER"
+                            )
+
+                        self._dispatch_signal(
+                            final_signal,
+                            on_allowed=_on_dispatch_allowed,
+                        )
                     else:
                         safe_print("HISTORICAL MODE - signal not sent, logged only")
 

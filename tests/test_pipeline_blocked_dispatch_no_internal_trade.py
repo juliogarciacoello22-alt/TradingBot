@@ -1,11 +1,14 @@
-﻿import asyncio
+import asyncio
 import unittest
-from unittest.mock import AsyncMock, Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from core.pipeline_live_pro import PipelineLivePRO
 
 
-class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCase):
+class PipelineBlockedDispatchNoInternalTradeTests(
+    unittest.IsolatedAsyncioTestCase
+):
     async def test_blocked_dispatch_must_not_open_internal_trade(self):
         api = Mock()
         api.loader = Mock()
@@ -31,7 +34,12 @@ class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCa
             "tp1": 101.0,
         }
 
-        dispatch_task = pipeline._dispatch_signal(signal)
+        on_allowed = Mock()
+
+        dispatch_task = pipeline._dispatch_signal(
+            signal,
+            on_allowed=on_allowed,
+        )
 
         if isinstance(dispatch_task, asyncio.Task):
             result = await dispatch_task
@@ -40,13 +48,12 @@ class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCa
 
         self.assertFalse(result["allowed"])
         self.assertEqual(result["reason"], "enable_trading_disabled")
+        on_allowed.assert_not_called()
         pipeline.exit_engine.open_from_signal.assert_not_called()
 
-    @unittest.expectedFailure
-    async def test_process_must_not_open_internal_trade_when_dispatch_is_blocked(self):
-        from types import SimpleNamespace
-        from unittest.mock import patch
-
+    async def test_process_must_not_open_internal_trade_when_dispatch_is_blocked(
+        self,
+    ):
         api = Mock()
         api.loader = Mock()
         api.prev_delta = None
@@ -114,7 +121,11 @@ class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCa
             "reason": "enable_trading_disabled",
             "enable_trading": False,
         }
-        pipeline._dispatch_signal = Mock(return_value=blocked_result)
+
+        def blocked_dispatch(signal, on_allowed=None):
+            return blocked_result
+
+        pipeline._dispatch_signal = Mock(side_effect=blocked_dispatch)
 
         raw = {
             "open": 100.0,
@@ -126,8 +137,14 @@ class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCa
         }
 
         with (
-            patch("core.pipeline_live_pro.delta_calc.compute_delta", return_value=1.0),
-            patch("core.pipeline_live_pro.delta_calc.compute_cumdelta", return_value=1.0),
+            patch(
+                "core.pipeline_live_pro.delta_calc.compute_delta",
+                return_value=1.0,
+            ),
+            patch(
+                "core.pipeline_live_pro.delta_calc.compute_cumdelta",
+                return_value=1.0,
+            ),
             patch(
                 "core.pipeline_live_pro.execution_engine.validate",
                 return_value=(True, "ok"),
@@ -141,8 +158,14 @@ class PipelineBlockedDispatchNoInternalTradeTests(unittest.IsolatedAsyncioTestCa
             result = pipeline.process(raw)
 
         self.assertEqual(result, signal)
-        pipeline._dispatch_signal.assert_called_once_with(signal)
+        pipeline._dispatch_signal.assert_called_once()
+
+        dispatch_args, dispatch_kwargs = pipeline._dispatch_signal.call_args
+        self.assertEqual(dispatch_args[0], signal)
+        self.assertIn("on_allowed", dispatch_kwargs)
+
         pipeline.exit_engine.open_from_signal.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
