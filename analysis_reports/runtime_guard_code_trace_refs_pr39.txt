@@ -1,0 +1,227 @@
+﻿auditor_biumolo_pro_v2.py:311:async def test_api_send_signal():
+auditor_biumolo_pro_v2.py:312:    print("\n[TEST] API.send_signal + JSON + Telegram + NinjaTrader")
+auditor_biumolo_pro_v2.py:348:    await api.send_signal(signal)
+auditor_biumolo_pro_v2.py:375:    asyncio.run(test_api_send_signal())
+core\api.py:5:from core.runtime_guard import evaluate_signal_permission, log_blocked_execution
+core\api.py:135:    async def send_signal(self, signal):
+core\audit_session_logger.py:24:    "dispatch_events.jsonl",
+core\audit_session_logger.py:195:    dispatch_records = _read_jsonl(session_dir / "dispatch_events.jsonl")
+core\audit_session_logger.py:219:                "dispatch_status": record.get("dispatch_status"),
+core\audit_session_logger.py:235:        "total_senales_despachadas": sum(1 for r in dispatch_records if r.get("allowed") is True),
+core\audit_session_logger.py:236:        "total_senales_bloqueadas": sum(1 for r in dispatch_records if r.get("allowed") is False),
+core\audit_session_logger.py:264:            f"{row.get('tp1')} | {row.get('tp2')} | {row.get('tp3')} | {row.get('dispatch_status')} |"
+core\audit_session_logger.py:301:            "| Hora local | Side | Entry | Stop | TP1 | TP2 | TP3 | Dispatch |",
+core\audit_session_logger_patch.py:10:_DISPATCH_RESULT_RE = re.compile(r"PIPELINE DISPATCH RESULT[^\n]*\ballowed=([^\s]+)[^\n]*\breason=([^\s]+)")
+core\audit_session_logger_patch.py:70:    dispatch_block_reasons = Counter()
+core\audit_session_logger_patch.py:71:    dispatch_allowed = 0
+core\audit_session_logger_patch.py:72:    dispatch_blocked = 0
+core\audit_session_logger_patch.py:74:    for allowed, reason in _DISPATCH_RESULT_RE.findall(console_text):
+core\audit_session_logger_patch.py:76:            dispatch_allowed += 1
+core\audit_session_logger_patch.py:78:            dispatch_blocked += 1
+core\audit_session_logger_patch.py:79:            dispatch_block_reasons[reason] += 1
+core\audit_session_logger_patch.py:93:        "dispatch_allowed": dispatch_allowed,
+core\audit_session_logger_patch.py:94:        "dispatch_blocked": dispatch_blocked,
+core\audit_session_logger_patch.py:95:        "dispatch_block_reasons": dispatch_block_reasons,
+core\audit_session_logger_patch.py:130:    dispatch_records = _read_jsonl_flexible(session_dir / "dispatch_events.jsonl")
+core\audit_session_logger_patch.py:143:    dispatch_block_reasons = Counter(
+core\audit_session_logger_patch.py:144:        str(record.get("reason") or record.get("dispatch_status") or "unknown")
+core\audit_session_logger_patch.py:145:        for record in dispatch_records
+core\audit_session_logger_patch.py:148:    dispatch_block_reasons.update(console["dispatch_block_reasons"])
+core\audit_session_logger_patch.py:186:        sum(1 for record in dispatch_records if record.get("allowed") is True),
+core\audit_session_logger_patch.py:187:        console["dispatch_allowed"],
+core\audit_session_logger_patch.py:191:        sum(1 for record in dispatch_records if record.get("allowed") is False),
+core\audit_session_logger_patch.py:192:        console["dispatch_blocked"],
+core\audit_session_logger_patch.py:224:            "dispatch_events": len(dispatch_records),
+core\audit_session_logger_patch.py:241:        "dispatch_block_reasons": _as_count_pairs(dispatch_block_reasons),
+core\backend.py:81:            api.send_signal(raw)
+core\backend.py:252:                api.send_signal(final_signal)
+core\observational_structural_recovery.py:8:missed trade, or authorization to affect risk, execution, dispatch, or runtime.
+core\pipeline_live_pro.py:226:                "dispatch_attempted": False,
+core\pipeline_live_pro.py:227:                "send_signal_called": False,
+core\pipeline_live_pro.py:284:    def _dispatch_signal(self, signal):
+core\pipeline_live_pro.py:285:        coro = self.api.send_signal(signal)
+core\pipeline_live_pro.py:297:                safe_print(f"SIGNAL DISPATCH CALLBACK ERROR: {err}")
+core\pipeline_live_pro.py:300:                safe_print(f"SIGNAL DISPATCH ERROR: {exc}")
+core\pipeline_live_pro.py:333:                    self._dispatch_signal(raw)
+core\pipeline_live_pro.py:492:                        self._dispatch_signal(final_signal)
+core\runtime_guard.py:1:# core/runtime_guard.py
+core\runtime_guard.py:8:ALLOWED_RUN_MODES = {"PLAYBACK", "PAPER", "PAPER_LIVE", "LIVE"}
+core\runtime_guard.py:10:_DEFAULT_RUN_MODE = "PLAYBACK"
+core\runtime_guard.py:18:    run_mode: str
+core\runtime_guard.py:30:    run_mode: str
+core\runtime_guard.py:85:def get_run_mode(environ: Optional[Mapping[str, str]] = None) -> str:
+core\runtime_guard.py:86:    raw_value = _read_env(environ, "RUN_MODE")
+core\runtime_guard.py:88:        return _DEFAULT_RUN_MODE
+core\runtime_guard.py:92:def is_live_data_mode(run_mode: str) -> bool:
+core\runtime_guard.py:93:    return run_mode in {"PAPER", "PAPER_LIVE", "LIVE"}
+core\runtime_guard.py:97:    raw_value = _read_env(environ, "EnableTrading", "ENABLE_TRADING")
+core\runtime_guard.py:151:        "TRADING_ACCOUNT",
+core\runtime_guard.py:159:    run_mode = get_run_mode(environ)
+core\runtime_guard.py:161:    enable_raw = _read_env(environ, "EnableTrading", "ENABLE_TRADING")
+core\runtime_guard.py:166:    if run_mode not in ALLOWED_RUN_MODES:
+core\runtime_guard.py:169:            run_mode=run_mode,
+core\runtime_guard.py:174:            reason="invalid_run_mode",
+core\runtime_guard.py:180:            run_mode=run_mode,
+core\runtime_guard.py:191:            run_mode=run_mode,
+core\runtime_guard.py:199:    if run_mode in {"PLAYBACK", "PAPER", "PAPER_LIVE"}:
+core\runtime_guard.py:203:                run_mode=run_mode,
+core\runtime_guard.py:213:            run_mode=run_mode,
+core\runtime_guard.py:224:            run_mode=run_mode,
+core\runtime_guard.py:235:            run_mode=run_mode,
+core\runtime_guard.py:246:            run_mode=run_mode,
+core\runtime_guard.py:256:        run_mode=run_mode,
+core\runtime_guard.py:270:                "RUN_MODE": safety.run_mode,
+core\runtime_guard.py:286:    run_mode = safety.run_mode
+core\runtime_guard.py:290:    if run_mode not in ALLOWED_RUN_MODES:
+core\runtime_guard.py:293:            run_mode=run_mode,
+core\runtime_guard.py:295:            reason="invalid_run_mode",
+core\runtime_guard.py:302:            run_mode=run_mode,
+core\runtime_guard.py:311:            run_mode=run_mode,
+core\runtime_guard.py:320:            run_mode=run_mode,
+core\runtime_guard.py:326:    if run_mode == "LIVE":
+core\runtime_guard.py:330:                run_mode=run_mode,
+core\runtime_guard.py:337:            run_mode=run_mode,
+core\runtime_guard.py:345:    if run_mode == "PLAYBACK":
+core\runtime_guard.py:349:                run_mode=run_mode,
+core\runtime_guard.py:354:    elif run_mode in {"PAPER", "PAPER_LIVE"}:
+core\runtime_guard.py:358:                run_mode=run_mode,
+core\runtime_guard.py:366:        run_mode=run_mode,
+core\runtime_guard.py:378:                "RUN_MODE": decision.run_mode,
+core\runtime_guard.py:381:                "EnableTrading": decision.enable_trading,
+core\runtime_guard.py:390:    api.run_mode = safety.run_mode
+core\runtime_guard.py:396:    return safety.run_mode
+server.py:18:from core.runtime_guard import sync_api_runtime_mode
+server.py:26:# Live/historical flag bound to RUN_MODE.
+server.py:42:@app.post("/send_signal")
+server.py:43:async def send_signal(signal: dict):
+server.py:61:    result = await api.send_signal(signal)
+server.py:66:            "run_mode": result.get("run_mode"),
+server.py:68:            "EnableTrading": result.get("enable_trading"),
+server.py:141:                await api.send_signal(msg)
+tests\test_audit_post_pr27_signal_quality.py:70:            _write_jsonl(session / "dispatch_events.jsonl", [])
+tests\test_audit_post_pr27_signal_quality.py:79:        self.assertEqual(report["metrics"]["dispatch_events"], 0)
+tests\test_audit_post_pr27_signal_quality.py:81:        self.assertEqual(report["artifact_presence"]["dispatch_events.jsonl"], True)
+tests\test_audit_post_pr27_signal_quality.py:88:    def test_missing_dispatch_or_telegram_artifacts_make_safety_incomplete(self):
+tests\test_audit_post_pr27_signal_quality.py:96:        self.assertEqual(report["metrics"]["dispatch_events"], 0)
+tests\test_audit_post_pr27_signal_quality.py:98:        self.assertEqual(report["artifact_presence"]["dispatch_events.jsonl"], False)
+tests\test_audit_post_pr27_signal_quality.py:102:            ["dispatch_events.jsonl", "telegram_events.jsonl"],
+tests\test_audit_shadow_vs_real_post_pr19.py:57:                session_dir / "dispatch_events.jsonl",
+tests\test_audit_shadow_vs_real_post_pr19.py:72:        self.assertEqual(metrics["dispatch_blocked"], 1)
+tests\test_audit_shadow_vs_real_post_pr19.py:74:        self.assertEqual(metrics["real_signal_not_dispatched_cases"], 1)
+tests\test_audit_shadow_vs_real_post_pr19.py:84:                "dispatch_events.jsonl",
+tests\test_import_historical_playback_readonly.py:43:        self.assertTrue(all(row["no_dispatch"] is True for row in feed))
+tests\test_import_historical_playback_readonly.py:46:        self.assertTrue(metadata["no_dispatch"])
+tests\test_import_historical_playback_readonly.py:49:        self.assertFalse(metadata["send_signal_called"])
+tests\test_pipeline_decision_jsonl_logging.py:35:        self.assertFalse(rows[0]["dispatch_attempted"])
+tests\test_pipeline_decision_jsonl_logging.py:36:        self.assertFalse(rows[0]["send_signal_called"])
+tests\test_process_historical_playback_audit_only.py:54:        self.assertFalse(metadata["send_signal_called"])
+tests\test_process_historical_playback_audit_only.py:55:        self.assertTrue(metadata["no_dispatch"])
+tests\test_process_historical_playback_audit_only.py:59:        self.assertTrue(all(row["dispatch_attempted"] is False for row in decisions))
+tests\test_process_historical_playback_audit_only.py:67:    def test_preserves_empty_dispatch_and_telegram_artifacts(self):
+tests\test_process_historical_playback_audit_only.py:73:            dispatch = (session_dir / "dispatch_events.jsonl").read_text(encoding="utf-8")
+tests\test_process_historical_playback_audit_only.py:76:        self.assertEqual(dispatch, "")
+tests\test_process_historical_playback_audit_only.py:93:                json.dumps({"source_type": "historical_playback", "no_dispatch": True, "no_live": True}) + "\n",
+tests\test_process_historical_playback_audit_only.py:111:        self.assertEqual(metrics["dispatch_events"], 0)
+tests\test_runtime_guard.py:5:from core.runtime_guard import (
+tests\test_runtime_guard.py:25:            "RUN_MODE": "PLAYBACK",
+tests\test_runtime_guard.py:26:            "EnableTrading": "false",
+tests\test_runtime_guard.py:27:            "TRADING_ACCOUNT": "playback",
+tests\test_runtime_guard.py:41:            "RUN_MODE": "LIVE",
+tests\test_runtime_guard.py:42:            "EnableTrading": "false",
+tests\test_runtime_guard.py:43:            "TRADING_ACCOUNT": "real-account",
+tests\test_runtime_guard.py:58:            "RUN_MODE": "LIVE",
+tests\test_runtime_guard.py:59:            "EnableTrading": "true",
+tests\test_runtime_guard.py:60:            "TRADING_ACCOUNT": "real-account",
+tests\test_runtime_guard.py:74:            "RUN_MODE": "PAPER",
+tests\test_runtime_guard.py:75:            "EnableTrading": "true",
+tests\test_runtime_guard.py:76:            "TRADING_ACCOUNT": "real-account",
+tests\test_runtime_guard.py:90:            "RUN_MODE": "PLAYBACK",
+tests\test_runtime_guard.py:91:            "EnableTrading": "false",
+tests\test_runtime_guard.py:92:            "TRADING_ACCOUNT": "playback",
+tests\test_runtime_guard.py:103:            "RUN_MODE": "PLAYBACK",
+tests\test_runtime_guard.py:104:            "EnableTrading": "maybe",
+tests\test_runtime_guard.py:105:            "TRADING_ACCOUNT": "playback",
+tests\test_runtime_guard.py:108:            "RUN_MODE": "LIVE",
+tests\test_runtime_guard.py:109:            "EnableTrading": "true",
+tests\test_runtime_guard.py:110:            "TRADING_ACCOUNT": "real-account",
+tests\test_runtime_guard.py:128:            "RUN_MODE": "LIVE",
+tests\test_runtime_guard.py:129:            "EnableTrading": "true",
+tests\test_runtime_guard.py:130:            "TRADING_ACCOUNT": "real-account",
+tests\test_runtime_guard.py:134:            run_mode = sync_api_runtime_mode(api, env)
+tests\test_runtime_guard.py:136:        self.assertEqual(run_mode, "LIVE")
+tests\test_run_playback_audit_session.py:31:    def test_session_is_explicitly_non_live_and_no_dispatch(self):
+tests\test_run_playback_audit_session.py:35:                session_id="unit_no_dispatch",
+tests\test_run_playback_audit_session.py:39:            dispatch = _read_jsonl(session_dir / "dispatch_events.jsonl")
+tests\test_run_playback_audit_session.py:42:        self.assertFalse(metadata["send_signal_called"])
+tests\test_run_playback_audit_session.py:46:        self.assertTrue(all(row["allowed"] is False for row in dispatch))
+tests\test_run_playback_audit_session.py:74:        self.assertEqual(metrics["dispatch_blocked"], 1)
+tools\audit_post_pr27_signal_quality.py:4:the pipeline, does not call SignalEngineV4, and does not dispatch anything.
+tools\audit_post_pr27_signal_quality.py:80:    dispatch_present, dispatch = _read_jsonl_with_presence(
+tools\audit_post_pr27_signal_quality.py:81:        session_dir / "dispatch_events.jsonl"
+tools\audit_post_pr27_signal_quality.py:142:        "dispatch_events.jsonl": dispatch_present,
+tools\audit_post_pr27_signal_quality.py:148:    safety = "FAIL" if dispatch or telegram else "PASS"
+tools\audit_post_pr27_signal_quality.py:159:            "dispatch_events": len(dispatch),
+tools\audit_post_pr27_signal_quality.py:184:            "dispatch_events and telegram_events must remain zero for this audit",
+tools\audit_post_pr27_signal_quality.py:185:            "missing dispatch/telegram artifacts mean absence is unconfirmed",
+tools\audit_shadow_vs_real_post_pr19.py:23:    "dispatch_events": "dispatch_events.jsonl",
+tools\audit_shadow_vs_real_post_pr19.py:104:    dispatch_events = read_jsonl(session_dir / SESSION_FILES["dispatch_events"])
+tools\audit_shadow_vs_real_post_pr19.py:140:    dispatch_allowed = sum(1 for row in dispatch_events if row.get("allowed") is True)
+tools\audit_shadow_vs_real_post_pr19.py:141:    dispatch_blocked = sum(1 for row in dispatch_events if row.get("allowed") is False)
+tools\audit_shadow_vs_real_post_pr19.py:144:    real_signal_not_dispatched_cases = max(real_generated - dispatch_allowed, 0)
+tools\audit_shadow_vs_real_post_pr19.py:162:            "dispatch_events": len(dispatch_events),
+tools\audit_shadow_vs_real_post_pr19.py:163:            "dispatch_allowed": dispatch_allowed,
+tools\audit_shadow_vs_real_post_pr19.py:164:            "dispatch_blocked": dispatch_blocked,
+tools\audit_shadow_vs_real_post_pr19.py:169:            "real_signal_not_dispatched_cases": real_signal_not_dispatched_cases,
+tools\audit_shadow_vs_real_post_pr19.py:180:            "dispatch_blocks": _count_reason(
+tools\audit_shadow_vs_real_post_pr19.py:181:                (row for row in dispatch_events if row.get("allowed") is False),
+tools\audit_shadow_vs_real_post_pr19.py:183:                "dispatch_status",
+tools\audit_shadow_vs_real_post_pr19.py:188:            "real_generated_signals are signal-engine outputs, not necessarily dispatched orders",
+tools\audit_shadow_vs_real_post_pr19.py:190:            "dispatch_allowed and telegram_sent are the closest available evidence of downstream delivery",
+tools\audit_shadow_vs_real_post_pr19.py:239:            "## Dispatch Blocks",
+tools\audit_shadow_vs_real_post_pr19.py:243:            *rows(reason_counts["dispatch_blocks"]),
+tools\import_historical_playback_readonly.py:6:send_signal, or produce pipeline/build-signal/SHADOW results.
+tools\import_historical_playback_readonly.py:27:    "dispatch_events.jsonl",
+tools\import_historical_playback_readonly.py:218:            "no_dispatch": True,
+tools\import_historical_playback_readonly.py:236:        "no_dispatch": True,
+tools\import_historical_playback_readonly.py:241:        "send_signal_called": False,
+tools\import_historical_playback_readonly.py:247:            "No pipeline decisions, build_signal results, dispatch events, or SHADOW metrics were generated.",
+tools\import_historical_playback_readonly.py:268:                "- no_dispatch: `true`",
+tools\import_historical_playback_readonly.py:273:                "pipeline decisions, full-path snapshots, dispatch events, or",
+tools\import_historical_playback_readonly.py:281:        "Historical playback import completed without server, pipeline, dispatch, websocket, or telegram.\n",
+tools\process_historical_playback_audit_only.py:6:open WebSockets, use Telegram, call send_signal, or generate orders.
+tools\process_historical_playback_audit_only.py:9:through a no-dispatch audit pipeline stage. It does not claim SignalEngineV4
+tools\process_historical_playback_audit_only.py:29:    "dispatch_events.jsonl",
+tools\process_historical_playback_audit_only.py:107:    if metadata.get("no_dispatch") is not True or metadata.get("no_live") is not True:
+tools\process_historical_playback_audit_only.py:108:        raise ValueError("imported session must preserve no_dispatch=true and no_live=true")
+tools\process_historical_playback_audit_only.py:138:        "dispatch_attempted": False,
+tools\process_historical_playback_audit_only.py:139:        "send_signal_called": False,
+tools\process_historical_playback_audit_only.py:143:        "no_dispatch": True,
+tools\process_historical_playback_audit_only.py:191:                "dispatch": {
+tools\process_historical_playback_audit_only.py:192:                    "dispatch_attempted": False,
+tools\process_historical_playback_audit_only.py:193:                    "send_signal_called": False,
+tools\process_historical_playback_audit_only.py:194:                    "no_dispatch": True,
+tools\process_historical_playback_audit_only.py:218:            "- no_dispatch: `true`",
+tools\process_historical_playback_audit_only.py:224:            "execution, dispatch, Telegram delivery, or orders.",
+tools\process_historical_playback_audit_only.py:241:    _write_jsonl(session_dir / "dispatch_events.jsonl", [])
+tools\process_historical_playback_audit_only.py:257:        "send_signal_called": False,
+tools\process_historical_playback_audit_only.py:261:        "no_dispatch": True,
+tools\process_historical_playback_audit_only.py:266:            "no SignalEngineV4, dispatch, Telegram, WebSocket, Sim101, or Live path was invoked",
+tools\process_historical_playback_audit_only.py:276:        "SignalEngineV4, dispatch, websocket, telegram, Sim101, or Live.\n",
+tools\run_playback_audit_session.py:5:Telegram messages, or call dispatch/send_signal. The generated JSONL files use
+tools\run_playback_audit_session.py:24:    "dispatch_events.jsonl",
+tools\run_playback_audit_session.py:74:                "run_mode": "PLAYBACK_AUDIT",
+tools\run_playback_audit_session.py:83:                "run_mode": "PLAYBACK_AUDIT",
+tools\run_playback_audit_session.py:95:                "dispatch_attempted": False,
+tools\run_playback_audit_session.py:101:                "final_decision": "NO_DISPATCH",
+tools\run_playback_audit_session.py:102:                "final_reason": "playback_audit_no_dispatch",
+tools\run_playback_audit_session.py:103:                "detail": "real_signal_generated_but_runner_never_dispatches",
+tools\run_playback_audit_session.py:105:                "dispatch_attempted": False,
+tools\run_playback_audit_session.py:226:                "dispatch_status": "blocked_by_playback_audit_runner",
+tools\run_playback_audit_session.py:230:        "dispatch_events.jsonl": [
+tools\run_playback_audit_session.py:232:                "event": "dispatch_event",
+tools\run_playback_audit_session.py:236:                "reason": "playback_audit_no_dispatch",
+tools\run_playback_audit_session.py:237:                "dispatch_status": "not_attempted",
+tools\run_playback_audit_session.py:238:                "send_signal_called": False,
+tools\run_playback_audit_session.py:274:        "send_signal_called": False,
+tools\run_playback_audit_session.py:318:                "- send_signal_called: `false`",
+tools\run_playback_audit_session.py:328:        "PLAYBACK_AUDIT fixture session generated without server, dispatch, websocket, or telegram.\n",
