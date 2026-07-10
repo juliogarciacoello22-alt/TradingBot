@@ -1,0 +1,92 @@
+{
+  "account": "Sim101",
+  "controller_only": true,
+  "dispatch_attempted": false,
+  "ninjatrader_connected": false,
+  "orders_sent": 0,
+  "passed": true,
+  "readiness": {
+    "checks": [
+      {
+        "detail": "passed=True",
+        "name": "preflight_passed",
+        "passed": true
+      },
+      {
+        "detail": "status=PASS",
+        "name": "dry_run_passed",
+        "passed": true
+      },
+      {
+        "detail": "dispatch_attempted=False",
+        "name": "dry_run_no_dispatch",
+        "passed": true
+      },
+      {
+        "detail": "orders_sent=0",
+        "name": "dry_run_zero_orders",
+        "passed": true
+      },
+      {
+        "detail": "websocket_connected=False",
+        "name": "dry_run_no_websocket",
+        "passed": true
+      },
+      {
+        "detail": "telegram_connected=False",
+        "name": "dry_run_no_telegram",
+        "passed": true
+      },
+      {
+        "detail": "path=analysis_reports\\sim101_dry_run_controlled.json",
+        "name": "controlled_evidence_present",
+        "passed": true
+      },
+      {
+        "detail": "passed=True",
+        "name": "controlled_evidence_passed",
+        "passed": true
+      },
+      {
+        "detail": "run_mode=PAPER",
+        "name": "controlled_evidence_paper",
+        "passed": true
+      },
+      {
+        "detail": "account=Sim101",
+        "name": "controlled_evidence_sim101",
+        "passed": true
+      },
+      {
+        "detail": "dispatch_attempted=False",
+        "name": "controlled_evidence_no_dispatch",
+        "passed": true
+      },
+      {
+        "detail": "orders_sent=0",
+        "name": "controlled_evidence_zero_orders",
+        "passed": true
+      },
+      {
+        "detail": "websocket_connected=False",
+        "name": "controlled_evidence_no_websocket",
+        "passed": true
+      },
+      {
+        "detail": "telegram_connected=False",
+        "name": "controlled_evidence_no_telegram",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "readiness_passed": true,
+  "reason": "readiness_passed",
+  "report_path": "analysis_reports\\sim101_session_controller_controlled.json",
+  "run_mode": "PAPER",
+  "server_started": false,
+  "started_at_utc": "2026-07-10T16:02:02.198136+00:00",
+  "status": "PASS",
+  "telegram_connected": false,
+  "websocket_connected": false
+}
