@@ -16,10 +16,17 @@ from urllib.request import urlopen
 class ServerStartupSmokeResult:
     passed: bool
     status: str
+    startup_passed: bool
+    shutdown_passed: bool
     process_started: bool
     http_ready: bool
+    shutdown_requested: bool
+    shutdown_method: str
+    shutdown_timed_out: bool
     process_stopped: bool
     return_code: Optional[int]
+    stdout: str
+    stderr: str
     run_mode: Optional[str]
     account: Optional[str]
     trading_enabled: Optional[str]
@@ -57,6 +64,15 @@ def _wait_for_http(url: str, timeout_seconds: float) -> bool:
     return False
 
 
+def _controlled_shutdown_codes() -> set[int]:
+    if os.name == "nt":
+        # subprocess.terminate() uses TerminateProcess on Windows.
+        return {0, 1}
+
+    # POSIX terminate normally maps to SIGTERM.
+    return {0, -15}
+
+
 def run_server_startup_smoke(
     environ: Optional[Mapping[str, str]] = None,
     report_path: Optional[Path] = None,
@@ -89,9 +105,14 @@ def run_server_startup_smoke(
     process = None
     process_started = False
     http_ready = False
+    shutdown_requested = False
+    shutdown_method = "none"
+    shutdown_timed_out = False
     process_stopped = False
-    reason = "unknown"
     return_code = None
+    stdout = ""
+    stderr = ""
+    reason = "unknown"
 
     try:
         process = subprocess.Popen(
@@ -101,6 +122,7 @@ def run_server_startup_smoke(
             stderr=subprocess.PIPE,
             text=True,
         )
+
         process_started = process.poll() is None
 
         if not process_started:
@@ -119,25 +141,55 @@ def run_server_startup_smoke(
     finally:
         if process is not None:
             if process.poll() is None:
+                shutdown_requested = True
+                shutdown_method = "terminate"
                 process.terminate()
+
                 try:
-                    process.wait(timeout=5)
+                    stdout, stderr = process.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
+                    shutdown_timed_out = True
+                    shutdown_method = "kill"
                     process.kill()
-                    process.wait(timeout=5)
+                    stdout, stderr = process.communicate(timeout=5)
+            else:
+                stdout, stderr = process.communicate()
 
             return_code = process.returncode
             process_stopped = process.poll() is not None
 
-    passed = process_started and http_ready and process_stopped
+    startup_passed = process_started and http_ready
+
+    if shutdown_requested:
+        shutdown_passed = (
+            process_stopped
+            and not shutdown_timed_out
+            and return_code in _controlled_shutdown_codes()
+        )
+    else:
+        shutdown_passed = process_stopped and return_code == 0
+
+    passed = startup_passed and shutdown_passed
+
+    if startup_passed and not shutdown_passed:
+        reason = "server_started_but_shutdown_failed"
+    elif passed:
+        reason = "server_started_responded_and_stopped"
 
     result = ServerStartupSmokeResult(
         passed=passed,
         status="PASS" if passed else "FAIL",
+        startup_passed=startup_passed,
+        shutdown_passed=shutdown_passed,
         process_started=process_started,
         http_ready=http_ready,
+        shutdown_requested=shutdown_requested,
+        shutdown_method=shutdown_method,
+        shutdown_timed_out=shutdown_timed_out,
         process_stopped=process_stopped,
         return_code=return_code,
+        stdout=stdout,
+        stderr=stderr,
         run_mode=env.get("RUN_MODE"),
         account=env.get("TRADING_ACCOUNT"),
         trading_enabled=(
