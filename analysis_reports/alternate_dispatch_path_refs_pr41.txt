@@ -1,0 +1,16 @@
+﻿auditor_biumolo_pro_v2.py:311:async def test_api_send_signal():
+auditor_biumolo_pro_v2.py:312:    print("\n[TEST] API.send_signal + JSON + Telegram + NinjaTrader")
+auditor_biumolo_pro_v2.py:348:    await api.send_signal(signal)
+auditor_biumolo_pro_v2.py:375:    asyncio.run(test_api_send_signal())
+core\api.py:135:    async def send_signal(self, signal):
+core\backend.py:81:            api.send_signal(raw)
+core\backend.py:252:                api.send_signal(final_signal)
+core\pipeline_live_pro.py:284:    def _dispatch_signal(self, signal):
+core\pipeline_live_pro.py:285:        coro = self.api.send_signal(signal)
+core\pipeline_live_pro.py:333:                    self._dispatch_signal(raw)
+core\pipeline_live_pro.py:492:                        self._dispatch_signal(final_signal)
+server.py:43:async def send_signal(signal: dict):
+server.py:61:    result = await api.send_signal(signal)
+server.py:141:                await api.send_signal(msg)
+tests\test_api_runtime_guard_dispatch_block.py:29:                result = await api.send_signal(signal)
+tests\test_api_runtime_guard_dispatch_block.py:62:                result = await api.send_signal(signal)
