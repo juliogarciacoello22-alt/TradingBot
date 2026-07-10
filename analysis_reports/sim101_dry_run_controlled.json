@@ -1,0 +1,68 @@
+{
+  "account": "Sim101",
+  "dispatch_attempted": false,
+  "dry_run_only": true,
+  "orders_sent": 0,
+  "passed": true,
+  "preflight": {
+    "checks": [
+      {
+        "detail": "RUN_MODE=PAPER",
+        "name": "run_mode_is_paper",
+        "passed": true
+      },
+      {
+        "detail": "EnableTrading=True",
+        "name": "trading_explicitly_enabled",
+        "passed": true
+      },
+      {
+        "detail": "TRADING_ACCOUNT=Sim101",
+        "name": "account_is_exact_sim101",
+        "passed": true
+      },
+      {
+        "detail": "account=Sim101",
+        "name": "account_is_not_real",
+        "passed": true
+      },
+      {
+        "detail": "LIVE_TRADING_APPROVED=False",
+        "name": "live_approval_disabled",
+        "passed": true
+      },
+      {
+        "detail": "TELEGRAM_ENABLED=False",
+        "name": "telegram_disabled",
+        "passed": true
+      },
+      {
+        "detail": "reason=safe_mode",
+        "name": "runtime_startup_allowed",
+        "passed": true
+      },
+      {
+        "detail": "live_allowed=False",
+        "name": "runtime_live_not_allowed",
+        "passed": true
+      },
+      {
+        "detail": "reason=allowed",
+        "name": "signal_permission_allowed",
+        "passed": true
+      },
+      {
+        "detail": "run_mode=PAPER",
+        "name": "authorization_is_non_live",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "report_path": "analysis_reports\\sim101_dry_run_controlled.json",
+  "run_mode": "PAPER",
+  "started_at_utc": "2026-07-10T10:20:56.487467+00:00",
+  "status": "PASS",
+  "telegram_connected": false,
+  "websocket_connected": false
+}
