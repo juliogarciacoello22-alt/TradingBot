@@ -236,6 +236,24 @@ def _build_summary(session_dir: Path) -> dict[str, Any]:
 
     structured_reason_counts = _structured_reason_counts(decision_records)
 
+    pipeline_decision_count = len(decision_records)
+    build_signal_generated_count = sum(
+        1
+        for record in decision_records
+        if record.get("build_signal_reason") in {"scalper_generated", "swing_generated"}
+    )
+    final_signal_count = sum(
+        1
+        for record in decision_records
+        if record.get("terminal_stage") == "final_signal"
+        and record.get("terminal_reason") == "ok"
+    )
+    execution_rejected_count = sum(
+        1
+        for record in decision_records
+        if record.get("terminal_reason") == "execution_rejected"
+    )
+
     signals_table = []
     for record in enriched_signals:
         signals_table.append(
@@ -260,7 +278,13 @@ def _build_summary(session_dir: Path) -> dict[str, Any]:
         "total_velas_recibidas": len(feed_records),
         "total_feed_accepted": sum(1 for r in feed_records if r.get("feed_accepted") is True),
         "total_feed_rejected": sum(1 for r in feed_records if r.get("feed_accepted") is False),
-        "total_pipeline_executed": sum(1 for r in feed_records if r.get("pipeline_executed") is True),
+        "total_pipeline_executed": max(
+            sum(1 for r in feed_records if r.get("pipeline_executed") is True),
+            pipeline_decision_count,
+        ),
+        "total_build_signal_generated": build_signal_generated_count,
+        "total_final_signals": final_signal_count,
+        "total_execution_rejected": execution_rejected_count,
         "total_signal_candidates": len(signal_candidates),
         "total_senales_generadas": len(enriched_signals),
         "total_senales_despachadas": sum(1 for r in dispatch_records if r.get("allowed") is True),
@@ -338,6 +362,9 @@ def _format_summary_md(summary: dict[str, Any]) -> str:
             line("Feed accepted", summary.get("total_feed_accepted")),
             line("Feed rejected", summary.get("total_feed_rejected")),
             line("Pipeline executed", summary.get("total_pipeline_executed")),
+            line("Build signals generated", summary.get("total_build_signal_generated")),
+            line("Final signals", summary.get("total_final_signals")),
+            line("Execution rejected", summary.get("total_execution_rejected")),
             line("Señales generadas", summary.get("total_senales_generadas")),
             line("Señales despachadas", summary.get("total_senales_despachadas")),
             line("Señales bloqueadas", summary.get("total_senales_bloqueadas")),
