@@ -155,6 +155,16 @@ def enrich_summary_with_v2(summary: dict[str, Any], session_dir: Path) -> dict[s
         console["build_signal_results"],
         snapshots["full_path_snapshots"],
     )
+    structured_build_signal_generated = sum(
+        1
+        for record in decision_records
+        if record.get("build_signal_reason") in _SIGNAL_GENERATED_REASONS
+    )
+    observed_build_signal_results = _max_int(
+        console["build_signal_results"],
+        structured_build_signal_generated,
+        enriched.get("total_build_signal_generated"),
+    )
     observed_generated = _max_int(
         len(enriched_signals),
         len(signal_candidates),
@@ -211,6 +221,10 @@ def enrich_summary_with_v2(summary: dict[str, Any], session_dir: Path) -> dict[s
         warnings.append("base_summary_pipeline_zero_but_logs_show_activity")
     if summary.get("total_senales_generadas") == 0 and observed_generated > 0:
         warnings.append("base_summary_signals_zero_but_logs_show_generated_signals")
+    if console["build_signal_results"] == 0 and structured_build_signal_generated > 0:
+        warnings.append(
+            "summary_v2_build_signal_zero_but_pipeline_decisions_show_generated"
+        )
     if observed_generated > len(enriched_signals):
         warnings.append("signal_engine_generated_exceeds_final_enriched_signals")
 
@@ -228,7 +242,7 @@ def enrich_summary_with_v2(summary: dict[str, Any], session_dir: Path) -> dict[s
         },
         "observed_activity": {
             "pipeline_executed": observed_pipeline,
-            "build_signal_results": console["build_signal_results"],
+            "build_signal_results": observed_build_signal_results,
             "microstructure_decisions": console["microstructure_decisions"],
             "ob_engine_decisions": console["ob_engine_decisions"],
             "full_path_snapshots": snapshots["full_path_snapshots"],
