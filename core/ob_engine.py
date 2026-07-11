@@ -28,6 +28,8 @@ class OBEngine:
 
     def __init__(self):
         self.last_ob = None
+        self.last_decision_reason = None
+        self.last_decision_detail = None
 
     # ============================================================
     #   1. VALIDAR DISPLACEMENT INSTITUCIONAL
@@ -153,34 +155,33 @@ class OBEngine:
         validated = self._validate_ob(raw, micro)
 
         if not raw:
-            _decision_log("detect_ob", False, "raw_ob_missing", "candles={count}".format(count=len(candles)))
+            detail = "candles={count}".format(count=len(candles))
+            self.last_decision_reason = "raw_ob_missing"
+            self.last_decision_detail = detail
+            _decision_log("detect_ob", False, "raw_ob_missing", detail)
             return None
 
         if not validated:
-            _decision_log(
-                "detect_ob",
-                False,
-                "validation_failed",
-                "raw_type={ob_type} displacement={displacement}".format(
-                    ob_type=raw.get("type"),
-                    displacement=raw.get("displacement"),
-                ),
+            detail = "raw_type={ob_type} displacement={displacement}".format(
+                ob_type=raw.get("type"),
+                displacement=raw.get("displacement"),
             )
+            self.last_decision_reason = "validation_failed"
+            self.last_decision_detail = detail
+            _decision_log("detect_ob", False, "validation_failed", detail)
             return None
 
         final = self._mark_mitigation(validated, candles[-1])
 
-        _decision_log(
-            "detect_ob",
-            True,
-            "ok",
-            "type={ob_type} valid={valid} strength={strength} mitigated={mitigated}".format(
-                ob_type=final.get("type"),
-                valid=final.get("valid"),
-                strength=final.get("strength"),
-                mitigated=final.get("mitigated"),
-            ),
+        detail = "type={ob_type} valid={valid} strength={strength} mitigated={mitigated}".format(
+            ob_type=final.get("type"),
+            valid=final.get("valid"),
+            strength=final.get("strength"),
+            mitigated=final.get("mitigated"),
         )
+        self.last_decision_reason = "ok"
+        self.last_decision_detail = detail
+        _decision_log("detect_ob", True, "ok", detail)
 
         self.last_ob = final
         return final
