@@ -180,6 +180,35 @@ def _count_reason(records: Iterable[dict[str, Any]], key: str) -> Counter:
     return counter
 
 
+_STRUCTURED_REASON_FIELDS = (
+    "terminal_stage",
+    "terminal_reason",
+    "terminal_subreason",
+    "build_signal_reason",
+    "valid_entry_reason",
+    "ob_reason",
+    "timing_reason",
+)
+
+
+def _structured_reason_counts(records: Iterable[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    records = list(records)
+    return {
+        field: dict(_count_reason(records, field).most_common())
+        for field in _STRUCTURED_REASON_FIELDS
+    }
+
+
+def _top_reason_counts(
+    structured_counts: dict[str, dict[str, int]],
+    field: str,
+    limit: int = 15,
+) -> list[list[Any]]:
+    counts = structured_counts.get(field, {})
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [[reason, count] for reason, count in ordered[:limit]]
+
+
 def _parse_console_stats(console_text: str) -> dict[str, int]:
     return {
         "websocket_reconnects": console_text.count("RECONNECTING"),
@@ -204,6 +233,8 @@ def _build_summary(session_dir: Path) -> dict[str, Any]:
     for record in decision_records:
         if record.get("final_decision") == "NO_TRADE":
             no_trade_reasons[str(record.get("final_reason") or "unknown")] += 1
+
+    structured_reason_counts = _structured_reason_counts(decision_records)
 
     signals_table = []
     for record in enriched_signals:
@@ -238,6 +269,11 @@ def _build_summary(session_dir: Path) -> dict[str, Any]:
         "total_telegram_failed": sum(1 for r in telegram_records if r.get("sent") is False),
         "signals_table": signals_table,
         "top_no_trade_reasons": no_trade_reasons.most_common(15),
+        "structured_reason_counts": structured_reason_counts,
+        "top_terminal_reasons": _top_reason_counts(structured_reason_counts, "terminal_reason"),
+        "top_terminal_subreasons": _top_reason_counts(structured_reason_counts, "terminal_subreason"),
+        "top_ob_reasons": _top_reason_counts(structured_reason_counts, "ob_reason"),
+        "top_timing_reasons": _top_reason_counts(structured_reason_counts, "timing_reason"),
         "near_miss_candidates": [r for r in missed_records if r.get("classification") == "near_miss_candidate"],
         "possible_false_negative_pending_review": [
             r for r in missed_records if r.get("classification") == "possible_false_negative_pending_review"
@@ -267,6 +303,17 @@ def _format_summary_md(summary: dict[str, Any]) -> str:
         signals_lines.append("| - | - | - | - | - | - | - | - |")
 
     reason_lines = [f"- {reason}: {count}" for reason, count in summary.get("top_no_trade_reasons", [])] or ["- none"]
+
+    def count_lines(field: str) -> list[str]:
+        counts = summary.get("structured_reason_counts", {}).get(field, {})
+        ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        return [f"- {reason}: {count}" for reason, count in ordered] or ["- none"]
+
+    terminal_reason_lines = count_lines("terminal_reason")
+    terminal_subreason_lines = count_lines("terminal_subreason")
+    ob_reason_lines = count_lines("ob_reason")
+    timing_reason_lines = count_lines("timing_reason")
+
     near_miss_lines = [
         f"- {item.get('timestamp')} {item.get('classification')} {item.get('primary_block')}"
         for item in summary.get("near_miss_candidates", [])
@@ -304,6 +351,18 @@ def _format_summary_md(summary: dict[str, Any]) -> str:
             "",
             "## Top NO_TRADE reasons",
             *reason_lines,
+            "",
+            "## Structured terminal reasons",
+            *terminal_reason_lines,
+            "",
+            "## Structured terminal subreasons",
+            *terminal_subreason_lines,
+            "",
+            "## Structured OB reasons",
+            *ob_reason_lines,
+            "",
+            "## Structured timing reasons",
+            *timing_reason_lines,
             "",
             "## Near miss candidates",
             *near_miss_lines,
