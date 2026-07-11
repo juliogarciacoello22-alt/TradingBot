@@ -116,7 +116,7 @@ class AnalyzeStrategyBehaviorTests(unittest.TestCase):
             payload = json.loads(json_path.read_text(encoding="utf-8-sig"))
             markdown = md_path.read_text(encoding="utf-8-sig")
 
-        self.assertEqual(payload["report_version"], 1)
+        self.assertEqual(payload["report_version"], 2)
         self.assertIn("# BIUMOLO Offline Strategy Behavior Report", markdown)
         self.assertIn("no_sessions_discovered", markdown)
 
@@ -140,7 +140,7 @@ class AnalyzeStrategyBehaviorTests(unittest.TestCase):
 
         markdown = format_markdown(report)
 
-        self.assertIn("| example | 2 | 1 | 1 | 0 |", markdown)
+        self.assertIn("| example | LEGACY | 2 | 0 | 1 | 1 | 0 |", markdown)
 
 
 if __name__ == "__main__":
