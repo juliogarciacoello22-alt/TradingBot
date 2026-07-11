@@ -204,7 +204,7 @@ def _emit_full_path_snapshot_audit(
         )
 
 
-def _decision_log(stage, allowed, reason, detail):
+def _decision_log(stage, allowed, reason, detail, **structured):
     safe_print(
         ">> PIPELINE DECISION stage={stage} allowed={allowed} reason={reason} detail={detail}".format(
             stage=stage,
@@ -214,22 +214,67 @@ def _decision_log(stage, allowed, reason, detail):
         )
     )
     try:
+        payload = {
+            "event": "pipeline_decision",
+            "session_id": audit_session_logger.get_session_id(),
+            "stage": stage,
+            "allowed": bool(allowed),
+            "reason": reason,
+            "detail": detail,
+            "dispatch_attempted": False,
+            "send_signal_called": False,
+            "audit_only": True,
+        }
+        payload.update(
+            {
+                key: _audit_jsonable(value)
+                for key, value in structured.items()
+                if value is not None
+            }
+        )
         audit_session_logger.append_jsonl(
             "pipeline_decisions.jsonl",
-            {
-                "event": "pipeline_decision",
-                "session_id": audit_session_logger.get_session_id(),
-                "stage": stage,
-                "allowed": bool(allowed),
-                "reason": reason,
-                "detail": detail,
-                "dispatch_attempted": False,
-                "send_signal_called": False,
-                "audit_only": True,
-            },
+            payload,
         )
     except Exception as exc:
         safe_print("PIPELINE DECISION JSONL LOG FAILED:", repr(exc))
+
+def _terminal_decision_fields(
+    *,
+    signal_engine,
+    ob_engine,
+    timing,
+    terminal_stage=None,
+    terminal_reason=None,
+    terminal_subreason=None,
+):
+    build_signal_reason = getattr(signal_engine, "last_build_signal_reason", None)
+    valid_entry_reason = getattr(signal_engine, "last_valid_entry_reason", None)
+    ob_reason = getattr(ob_engine, "last_decision_reason", None)
+    ob_detail = getattr(ob_engine, "last_decision_detail", None)
+    timing_reason = timing.get("reason") if isinstance(timing, dict) else None
+
+    if terminal_reason is None:
+        terminal_stage = terminal_stage or "build_signal"
+        terminal_reason = build_signal_reason or "no_final_signal"
+
+    if terminal_subreason is None:
+        if terminal_reason == "valid_entry_failed":
+            terminal_subreason = valid_entry_reason
+        elif terminal_reason == "timing_invalid":
+            terminal_subreason = timing_reason
+
+    return {
+        "terminal_stage": terminal_stage,
+        "terminal_reason": terminal_reason,
+        "terminal_subreason": terminal_subreason,
+        "build_signal_reason": build_signal_reason,
+        "valid_entry_reason": valid_entry_reason,
+        "ob_reason": ob_reason,
+        "ob_detail": ob_detail,
+        "timing_reason": timing_reason,
+    }
+
 
 class PipelineLivePRO:
     """
@@ -438,6 +483,26 @@ class PipelineLivePRO:
                 signal.setdefault("meta", {})
                 signal["meta"]["timing"] = timing or {}
 
+            terminal_stage = None
+            terminal_reason = None
+            terminal_subreason = None
+
+            if signal is None:
+                terminal_stage = "build_signal"
+                terminal_reason = getattr(
+                    self.signal_engine,
+                    "last_build_signal_reason",
+                    None,
+                ) or "no_final_signal"
+                if terminal_reason == "valid_entry_failed":
+                    terminal_subreason = getattr(
+                        self.signal_engine,
+                        "last_valid_entry_reason",
+                        None,
+                    )
+                elif terminal_reason == "timing_invalid":
+                    terminal_subreason = timing.get("reason") if isinstance(timing, dict) else None
+
             # 14) RISK ENGINE v4 PRO + META.RISK NORMALIZADO
             if signal:
                 side = signal.get("side")
@@ -458,12 +523,18 @@ class PipelineLivePRO:
 
                 if isinstance(risk, dict) and not risk.get("valid", True):
                     safe_print("SIGNAL CANCELLED BY RISKENGINE -", risk)
+                    terminal_stage = "risk_engine"
+                    terminal_reason = "risk_invalid"
+                    terminal_subreason = risk.get("reason")
                     signal = None
 
             # 15) FILTRO POR TIMING
             if signal:
                 if isinstance(timing, dict) and not timing.get("valid", True):
                     safe_print("SIGNAL CANCELLED BY TIMINGENGINE -", timing.get("reason"))
+                    terminal_stage = "timing_engine"
+                    terminal_reason = "timing_invalid"
+                    terminal_subreason = timing.get("reason")
                     signal = None
 
             # 16) VALIDACIÃ“N FINAL â€” EXECUTION ENGINE PRO
@@ -481,8 +552,14 @@ class PipelineLivePRO:
 
                 if valid:
                     final_signal = signal
+                    terminal_stage = "final_signal"
+                    terminal_reason = "ok"
+                    terminal_subreason = None
                 else:
                     safe_print("SIGNAL REJECTED BY EXECUTIONENGINE -", reason)
+                    terminal_stage = "execution_engine"
+                    terminal_reason = "execution_rejected"
+                    terminal_subreason = reason
 
             # 17) DASHBOARD
             update_dashboard(candle, micro, final_signal)
@@ -522,6 +599,14 @@ class PipelineLivePRO:
             # actualizar prev_delta
             self.api.prev_delta = delta_value
 
+            terminal_fields = _terminal_decision_fields(
+                signal_engine=self.signal_engine,
+                ob_engine=self.ob_engine,
+                timing=timing,
+                terminal_stage=terminal_stage,
+                terminal_reason=terminal_reason,
+                terminal_subreason=terminal_subreason,
+            )
             _decision_log(
                 "process",
                 final_signal is not None,
@@ -530,6 +615,7 @@ class PipelineLivePRO:
                     side=None if final_signal is None else final_signal.get("side"),
                     mode=None if final_signal is None else final_signal.get("mode"),
                 ),
+                **terminal_fields,
             )
             return final_signal
 
