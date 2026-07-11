@@ -46,6 +46,29 @@ def percentage(numerator: int, denominator: int) -> float:
     return round((numerator / denominator) * 100.0, 2)
 
 
+def classify_telemetry(records: list[dict[str, Any]]) -> str:
+    if not records:
+        return 'EMPTY'
+    structured_count = sum(
+        1
+        for record in records
+        if any(record.get(field) not in (None, '') for field in _REASON_FIELDS)
+    )
+    if structured_count == 0:
+        return 'LEGACY'
+    if structured_count == len(records):
+        return 'FULL'
+    return 'PARTIAL'
+
+
+def structured_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        record
+        for record in records
+        if any(record.get(field) not in (None, '') for field in _REASON_FIELDS)
+    ]
+
+
 def analyze_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(records)
     build_generated = sum(
@@ -84,8 +107,12 @@ def analyze_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     if build_generated == 0:
         warnings.append("no_generated_build_signals")
 
+    structured = structured_records(records)
+
     return {
         "pipeline_decisions": total,
+        "structured_decisions": len(structured),
+        "telemetry_class": classify_telemetry(records),
         "funnel": {
             "build_signal_generated": build_generated,
             "final_signals": final_signals,
@@ -118,23 +145,38 @@ def discover_sessions(sessions_root: Path) -> list[Path]:
 def build_report(session_dirs: list[Path]) -> dict[str, Any]:
     sessions = []
     all_records: list[dict[str, Any]] = []
+    all_structured_records: list[dict[str, Any]] = []
 
     for session_dir in session_dirs:
         records = read_jsonl(session_dir / "pipeline_decisions.jsonl")
         analysis = analyze_records(records)
         sessions.append({"session_id": session_dir.name, **analysis})
         all_records.extend(records)
+        all_structured_records.extend(structured_records(records))
 
     aggregate = analyze_records(all_records)
+    structured_aggregate = analyze_records(all_structured_records)
+    coverage_pct = percentage(len(all_structured_records), len(all_records))
+    class_counts = sorted_counts(session["telemetry_class"] for session in sessions)
+
     report_warnings = list(aggregate["warnings"])
     if not session_dirs:
         report_warnings.append("no_sessions_discovered")
+    if all_records and coverage_pct < 80.0:
+        report_warnings.append("structured_telemetry_coverage_below_80_percent")
 
     return {
-        "report_version": 1,
+        "report_version": 2,
         "sessions_analyzed": len(session_dirs),
         "session_ids": [path.name for path in session_dirs],
+        "telemetry_coverage": {
+            "pipeline_decisions_total": len(all_records),
+            "structured_decisions": len(all_structured_records),
+            "coverage_percent": coverage_pct,
+            "session_class_counts": class_counts,
+        },
         "aggregate": aggregate,
+        "structured_aggregate": structured_aggregate,
         "sessions": sessions,
         "warnings": report_warnings,
         "safety": {
@@ -147,7 +189,10 @@ def build_report(session_dirs: list[Path]) -> dict[str, Any]:
 
 def format_markdown(report: dict[str, Any]) -> str:
     aggregate = report["aggregate"]
+    structured_aggregate = report.get("structured_aggregate", aggregate)
     funnel = aggregate["funnel"]
+    structured_funnel = structured_aggregate["funnel"]
+    coverage = report.get("telemetry_coverage", {})
     lines = [
         "# BIUMOLO Offline Strategy Behavior Report",
         "",
@@ -156,18 +201,27 @@ def format_markdown(report: dict[str, Any]) -> str:
         f"- **Build signals generated:** {funnel['build_signal_generated']}",
         f"- **Final signals:** {funnel['final_signals']}",
         f"- **Execution rejected:** {funnel['execution_rejected']}",
+        f"- **Structured decisions:** {coverage.get('structured_decisions', 0)}",
+        f"- **Structured telemetry coverage:** {coverage.get('coverage_percent', 0.0)}%",
         "",
-        "## Funnel",
+        "## Global/raw funnel",
         "",
         f"- Pipeline → build signal: {funnel['pipeline_to_build_signal_pct']}%",
         f"- Build signal → final signal: {funnel['build_signal_to_final_pct']}%",
         f"- Build signal → execution rejected: {funnel['build_signal_to_execution_rejected_pct']}%",
         "",
+        "## Comparable structured funnel",
+        "",
+        f"- Structured pipeline decisions: {structured_aggregate['pipeline_decisions']}",
+        f"- Pipeline → build signal: {structured_funnel['pipeline_to_build_signal_pct']}%",
+        f"- Build signal → final signal: {structured_funnel['build_signal_to_final_pct']}%",
+        f"- Build signal → execution rejected: {structured_funnel['build_signal_to_execution_rejected_pct']}%",
+        "",
         "## Dominant terminal subreasons",
         "",
     ]
 
-    dominant = aggregate["dominant_filters"]
+    dominant = structured_aggregate["dominant_filters"]
     if dominant:
         lines.extend(
             f"- {item['reason']}: {item['count']} ({item['share_of_pipeline_pct']}%)"
@@ -178,7 +232,7 @@ def format_markdown(report: dict[str, Any]) -> str:
 
     for field in ("terminal_reason", "terminal_subreason", "ob_reason", "timing_reason"):
         lines.extend(["", f"## {field}", ""])
-        counts = aggregate["reason_counts"][field]
+        counts = structured_aggregate["reason_counts"][field]
         if counts:
             lines.extend(f"- {reason}: {count}" for reason, count in counts.items())
         else:
@@ -188,14 +242,15 @@ def format_markdown(report: dict[str, Any]) -> str:
     if report["sessions"]:
         lines.extend(
             [
-                "| Session | Pipeline | Build signals | Final | Execution rejected |",
-                "| --- | ---: | ---: | ---: | ---: |",
+                "| Session | Class | Pipeline | Structured | Build signals | Final | Execution rejected |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for session in report["sessions"]:
             session_funnel = session["funnel"]
             lines.append(
-                f"| {session['session_id']} | {session['pipeline_decisions']} | "
+                f"| {session['session_id']} | {session.get('telemetry_class', 'LEGACY')} | "
+                f"{session['pipeline_decisions']} | {session.get('structured_decisions', 0)} | "
                 f"{session_funnel['build_signal_generated']} | "
                 f"{session_funnel['final_signals']} | "
                 f"{session_funnel['execution_rejected']} |"
