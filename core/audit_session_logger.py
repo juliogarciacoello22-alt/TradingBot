@@ -412,7 +412,7 @@ def write_session_summary(session_dir: Optional[str] = None) -> dict[str, Any]:
     summary = _build_summary(path)
     (path / "session_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
     (path / "session_summary.md").write_text(
         _format_summary_md(summary),
