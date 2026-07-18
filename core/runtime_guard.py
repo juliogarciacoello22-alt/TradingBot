@@ -4,6 +4,8 @@ import os
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Optional
 
+from core.domain import runtime_policy as _runtime_policy
+
 
 ALLOWED_RUN_MODES = {"PLAYBACK", "PAPER", "PAPER_LIVE", "LIVE"}
 SAFE_ACCOUNT_MARKERS = ("playback", "replay", "sim", "paper")
@@ -104,10 +106,7 @@ def get_live_trading_approved(environ: Optional[Mapping[str, str]] = None) -> bo
 
 
 def _account_is_safe_non_real(account: Optional[str]) -> bool:
-    if not account:
-        return False
-    normalized_account = account.lower()
-    return any(marker in normalized_account for marker in SAFE_ACCOUNT_MARKERS)
+    return _runtime_policy.account_is_safe_non_real(account, SAFE_ACCOUNT_MARKERS)
 
 
 def _account_is_real(account: Optional[str]) -> bool:
@@ -162,104 +161,17 @@ def validate_runtime_safety(environ: Optional[Mapping[str, str]] = None) -> Runt
     approved_raw = _read_env(environ, "LIVE_TRADING_APPROVED")
     trading_enabled, enable_valid = _parse_bool_strict(enable_raw, default=False)
     live_approved, approved_valid = _parse_bool_strict(approved_raw, default=False)
-
-    if run_mode not in ALLOWED_RUN_MODES:
-        return RuntimeSafety(
-            startup_allowed=False,
-            run_mode=run_mode,
-            trading_enabled=trading_enabled,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=live_approved,
-            reason="invalid_run_mode",
-        )
-
-    if not enable_valid:
-        return RuntimeSafety(
-            startup_allowed=False,
-            run_mode=run_mode,
-            trading_enabled=False,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=live_approved,
-            reason="malformed_enable_trading",
-        )
-
-    if not approved_valid:
-        return RuntimeSafety(
-            startup_allowed=False,
-            run_mode=run_mode,
-            trading_enabled=trading_enabled,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=False,
-            reason="malformed_live_trading_approved",
-        )
-
-    if run_mode in {"PLAYBACK", "PAPER", "PAPER_LIVE"}:
-        if trading_enabled and not _account_is_safe_non_real(account):
-            return RuntimeSafety(
-                startup_allowed=True,
-                run_mode=run_mode,
-                trading_enabled=trading_enabled,
-                account=account,
-                live_allowed=False,
-                live_trading_approved=live_approved,
-                reason="safe_mode_blocks_real_account",
-            )
-
-        return RuntimeSafety(
-            startup_allowed=True,
-            run_mode=run_mode,
-            trading_enabled=trading_enabled,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=live_approved,
-            reason="safe_mode",
-        )
-
-    if not trading_enabled:
-        return RuntimeSafety(
-            startup_allowed=True,
-            run_mode=run_mode,
-            trading_enabled=False,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=live_approved,
-            reason="live_trading_disabled",
-        )
-
-    if not account:
-        return RuntimeSafety(
-            startup_allowed=False,
-            run_mode=run_mode,
-            trading_enabled=trading_enabled,
-            account=None,
-            live_allowed=False,
-            live_trading_approved=live_approved,
-            reason="live_account_undetermined",
-        )
-
-    if not live_approved:
-        return RuntimeSafety(
-            startup_allowed=False,
-            run_mode=run_mode,
-            trading_enabled=trading_enabled,
-            account=account,
-            live_allowed=False,
-            live_trading_approved=False,
-            reason="live_trading_not_approved",
-        )
-
-    return RuntimeSafety(
-        startup_allowed=True,
+    decision = _runtime_policy.decide_runtime_safety(
         run_mode=run_mode,
         trading_enabled=trading_enabled,
+        enable_valid=enable_valid,
         account=account,
-        live_allowed=True,
         live_trading_approved=live_approved,
-        reason="live_trading_approved",
+        approval_valid=approved_valid,
+        allowed_run_modes=ALLOWED_RUN_MODES,
+        safe_account_markers=SAFE_ACCOUNT_MARKERS,
     )
+    return RuntimeSafety(**decision.__dict__)
 
 
 def log_runtime_safety(safety: RuntimeSafety) -> None:
@@ -286,88 +198,17 @@ def evaluate_signal_permission(
     run_mode = safety.run_mode
     enable_trading = safety.trading_enabled
     account = extract_account_name(signal, environ)
-
-    if run_mode not in ALLOWED_RUN_MODES:
-        return ExecutionAuthorization(
-            allowed=False,
-            run_mode=run_mode,
-            account=account,
-            reason="invalid_run_mode",
-            enable_trading=enable_trading,
-        )
-
-    if not safety.startup_allowed:
-        return ExecutionAuthorization(
-            allowed=False,
-            run_mode=run_mode,
-            account=account,
-            reason=safety.reason,
-            enable_trading=enable_trading,
-        )
-
-    if not enable_trading:
-        return ExecutionAuthorization(
-            allowed=False,
-            run_mode=run_mode,
-            account=account,
-            reason="enable_trading_disabled",
-            enable_trading=enable_trading,
-        )
-
-    if not account:
-        return ExecutionAuthorization(
-            allowed=False,
-            run_mode=run_mode,
-            account=None,
-            reason="account_undetermined",
-            enable_trading=enable_trading,
-        )
-
-    if run_mode == "LIVE":
-        if not safety.live_allowed:
-            return ExecutionAuthorization(
-                allowed=False,
-                run_mode=run_mode,
-                account=account,
-                reason=safety.reason,
-                enable_trading=enable_trading,
-            )
-        return ExecutionAuthorization(
-            allowed=True,
-            run_mode=run_mode,
-            account=account,
-            reason="allowed_live_approved",
-            enable_trading=enable_trading,
-        )
-
-    normalized_account = account.lower()
-
-    if run_mode == "PLAYBACK":
-        if "playback" not in normalized_account and "replay" not in normalized_account:
-            return ExecutionAuthorization(
-                allowed=False,
-                run_mode=run_mode,
-                account=account,
-                reason="playback_requires_playback_account",
-                enable_trading=enable_trading,
-            )
-    elif run_mode in {"PAPER", "PAPER_LIVE"}:
-        if not _account_is_safe_non_real(normalized_account):
-            return ExecutionAuthorization(
-                allowed=False,
-                run_mode=run_mode,
-                account=account,
-                reason="paper_live_requires_sim_account",
-                enable_trading=enable_trading,
-            )
-
-    return ExecutionAuthorization(
-        allowed=True,
+    decision = _runtime_policy.decide_signal_permission(
         run_mode=run_mode,
+        startup_allowed=safety.startup_allowed,
+        trading_enabled=enable_trading,
         account=account,
-        reason="allowed",
-        enable_trading=enable_trading,
+        live_allowed=safety.live_allowed,
+        safety_reason=safety.reason,
+        allowed_run_modes=ALLOWED_RUN_MODES,
+        safe_account_markers=SAFE_ACCOUNT_MARKERS,
     )
+    return ExecutionAuthorization(**decision.__dict__)
 
 
 def log_blocked_execution(decision: ExecutionAuthorization) -> None:
