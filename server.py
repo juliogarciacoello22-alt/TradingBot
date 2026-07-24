@@ -36,15 +36,7 @@ if SHOW_STARTUP_STATUS:
     print("=====================================")
 
 
-# ============================================================
-#   ENDPOINT: ENVIAR SEÑAL MANUAL
-# ============================================================
-@app.post("/send_signal")
-async def send_signal(signal: dict):
-    sync_api_runtime_mode(api)
-
-    print(">>> Senal manual recibida:", signal)
-
+async def _validate_and_dispatch_manual_signal(signal: dict, invalid_log_prefix: str):
     valid, reason = execution_engine.validate(
         tf={"1m": [], "5m": [], "30m": []},
         micro={},
@@ -55,10 +47,30 @@ async def send_signal(signal: dict):
     )
 
     if not valid:
-        print(">>> SENAL MANUAL CANCELADA -", reason)
-        return {"status": "rejected", "reason": reason}
+        print(invalid_log_prefix, reason)
+        return False, reason, None
 
     result = await api.send_signal(signal)
+    return True, reason, result
+
+
+# ============================================================
+#   ENDPOINT: ENVIAR SEÑAL MANUAL
+# ============================================================
+@app.post("/send_signal")
+async def send_signal(signal: dict):
+    sync_api_runtime_mode(api)
+
+    print(">>> Senal manual recibida:", signal)
+
+    valid, reason, result = await _validate_and_dispatch_manual_signal(
+        signal,
+        ">>> SENAL MANUAL CANCELADA -",
+    )
+
+    if not valid:
+        return {"status": "rejected", "reason": reason}
+
     if isinstance(result, dict) and not result.get("allowed", True):
         return {
             "status": "blocked",
@@ -125,20 +137,14 @@ async def stream_socket(websocket: WebSocket):
             if is_manual_signal:
                 print(">> SENAL MANUAL RECIBIDA:", msg)
 
-                valid, reason = execution_engine.validate(
-                    tf={"1m": [], "5m": [], "30m": []},
-                    micro={},
-                    signal=msg,
-                    context={},
-                    timing={},
-                    delta={}
+                valid, _, _ = await _validate_and_dispatch_manual_signal(
+                    msg,
+                    ">> SENAL MANUAL CANCELADA -",
                 )
 
                 if not valid:
-                    print(">> SENAL MANUAL CANCELADA -", reason)
                     continue
 
-                await api.send_signal(msg)
                 continue
 
             # ============================================================
